@@ -1,0 +1,40 @@
+project_name: brainwatch
+architecture: lambda
+
+data_sources:
+  eeg:
+    source_reference_csvs:
+      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/S0001_meta.csv
+      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/S0002_meta.csv
+      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/I0002_meta.csv
+      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/I0003_meta.csv
+      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/I0009_meta.csv
+    local_raw_root: data/raw/eeg
+    local_manifest_path: artifacts/generated/eeg_subset_manifest.json
+    target_subset_hours: 8
+    target_subset_sessions: 12
+  ehr:
+    local_raw_root: data/raw/ehr
+    bronze_root: data/bronze/ehr
+    timezone: UTC
+
+kafka:
+  bootstrap_servers: kafka:9092
+  topics:
+    eeg_raw: eeg.raw
+    ehr_updates: ehr.updates
+    realtime_features: features.realtime
+    anomaly_alerts: alerts.anomaly
+
+lakehouse:
+  bronze_prefix: data/lake/bronze
+  silver_prefix: data/lake/silver
+  gold_prefix: data/lake/gold
+
+serving:
+  nosql_backend: cassandra
+  keyspace: brainwatch
+
+monitoring:
+  metrics_namespace: brainwatch
+  checkpoint_prefix: data/checkpoints
