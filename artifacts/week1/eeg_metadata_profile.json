@@ -1,0 +1,56 @@
+{
+  "min_duration_seconds": 30.0,
+  "rows_by_service": {
+    "EMU": 13791,
+    "Faulkner": 3744,
+    "Fish": 158,
+    "LTM": 82343,
+    "OR": 501,
+    "Routine": 62835,
+    "UNSPECIFIED": 143369
+  },
+  "rows_by_site": {
+    "I0002": 74488,
+    "I0003": 61255,
+    "I0009": 7626,
+    "S0001": 96768,
+    "S0002": 66604
+  },
+  "rows_missing_duration": 11579,
+  "sample_candidate_s3_keys": [
+    "EEG/bids/S0001/sub-S0001111951342/ses-17/eeg/sub-S0001111951342_ses-17_task-cEEG_eeg.edf",
+    "EEG/bids/S0001/sub-S0001111189188/ses-10/eeg/sub-S0001111189188_ses-10_task-cEEG_eeg.edf",
+    "EEG/bids/S0001/sub-S0001111189188/ses-12/eeg/sub-S0001111189188_ses-12_task-cEEG_eeg.edf",
+    "EEG/bids/S0001/sub-S0001111192396/ses-2/eeg/sub-S0001111192396_ses-2_task-rEEG_eeg.edf",
+    "EEG/bids/S0001/sub-S0001111192538/ses-2/eeg/sub-S0001111192538_ses-2_task-cEEG_eeg.edf"
+  ],
+  "sex_distribution": {
+    "*Unspecified": 331,
+    "Choose not to disclose": 2,
+    "Don't Know": 7,
+    "F": 65274,
+    "Female": 83134,
+    "M": 68311,
+    "Male": 84357,
+    "Non-Binary": 8,
+    "Non-Binary, Genderqueer, or Genderfluid": 3,
+    "Transgender Male": 3,
+    "U": 8,
+    "UNKNOWN": 4952,
+    "Unable to obtain": 294,
+    "Unknown": 52,
+    "X": 5
+  },
+  "short_sessions_below_min_duration": 427,
+  "subjects_by_site": {
+    "I0002": 21781,
+    "I0003": 25045,
+    "I0009": 1790,
+    "S0001": 37256,
+    "S0002": 29188
+  },
+  "total_candidate_s3_keys": 337466,
+  "total_duration_hours_at_or_above_threshold": 3268943.95,
+  "total_rows": 306741,
+  "unique_subjects": 115060
+}

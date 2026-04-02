@@ -1,0 +1,18 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: brainwatch-streaming-bootstrap
+  namespace: brainwatch
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: spark-streaming-bootstrap
+          image: bitnami/spark:3.5
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              echo "Replace this bootstrap job with Spark Operator or spark-submit integration in week 2."
+              echo "Expected topics: eeg.raw, ehr.updates, features.realtime, alerts.anomaly"

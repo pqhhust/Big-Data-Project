@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: brainwatch-config
+  namespace: brainwatch
+data:
+  EEG_TOPIC: "eeg.raw"
+  EHR_TOPIC: "ehr.updates"
+  FEATURES_TOPIC: "features.realtime"
+  ALERTS_TOPIC: "alerts.anomaly"
+  BRONZE_PREFIX: "/data/lake/bronze"
+  SILVER_PREFIX: "/data/lake/silver"
+  GOLD_PREFIX: "/data/lake/gold"

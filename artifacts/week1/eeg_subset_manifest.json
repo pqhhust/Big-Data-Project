@@ -1,0 +1,143 @@
+{
+  "estimated_total_hours": 1.02,
+  "record_count": 12,
+  "records": [
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0002/sub-S0002116619187/ses-21/eeg/sub-S0002116619187_ses-21_task-cEEG_eeg.edf",
+        "EEG/bids/S0002/sub-S0002116619187/ses-21/eeg/sub-S0002116619187_ses-21_task-EEG_eeg.edf"
+      ],
+      "duration_seconds": 300.781,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "21",
+      "site_id": "S0002",
+      "subject_id": "sub-S0002116619187"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0002/sub-S0002119167636/ses-2/eeg/sub-S0002119167636_ses-2_task-cEEG_eeg.edf",
+        "EEG/bids/S0002/sub-S0002119167636/ses-2/eeg/sub-S0002119167636_ses-2_task-EEG_eeg.edf"
+      ],
+      "duration_seconds": 300.781,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "2",
+      "site_id": "S0002",
+      "subject_id": "sub-S0002119167636"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0001/sub-S0001114959966/ses-25/eeg/sub-S0001114959966_ses-25_task-cEEG_eeg.edf"
+      ],
+      "duration_seconds": 302.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "25",
+      "site_id": "S0001",
+      "subject_id": "sub-S0001114959966"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0002/sub-S0002112982885/ses-5/eeg/sub-S0002112982885_ses-5_task-cEEG_eeg.edf",
+        "EEG/bids/S0002/sub-S0002112982885/ses-5/eeg/sub-S0002112982885_ses-5_task-EEG_eeg.edf"
+      ],
+      "duration_seconds": 304.687,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "5",
+      "site_id": "S0002",
+      "subject_id": "sub-S0002112982885"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0002/sub-S0002122511447/ses-4/eeg/sub-S0002122511447_ses-4_task-cEEG_eeg.edf",
+        "EEG/bids/S0002/sub-S0002122511447/ses-4/eeg/sub-S0002122511447_ses-4_task-EEG_eeg.edf"
+      ],
+      "duration_seconds": 304.687,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "4",
+      "site_id": "S0002",
+      "subject_id": "sub-S0002122511447"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0002/sub-S0002119079718/ses-8/eeg/sub-S0002119079718_ses-8_task-cEEG_eeg.edf",
+        "EEG/bids/S0002/sub-S0002119079718/ses-8/eeg/sub-S0002119079718_ses-8_task-EEG_eeg.edf"
+      ],
+      "duration_seconds": 304.688,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "8",
+      "site_id": "S0002",
+      "subject_id": "sub-S0002119079718"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0001/sub-S0001122158336/ses-3/eeg/sub-S0001122158336_ses-3_task-rEEG_eeg.edf"
+      ],
+      "duration_seconds": 305.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "Routine",
+      "session_id": "3",
+      "site_id": "S0001",
+      "subject_id": "sub-S0001122158336"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0001/sub-S0001119498867/ses-85/eeg/sub-S0001119498867_ses-85_task-cEEG_eeg.edf"
+      ],
+      "duration_seconds": 306.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "85",
+      "site_id": "S0001",
+      "subject_id": "sub-S0001119498867"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0001/sub-S0001120307857/ses-1/eeg/sub-S0001120307857_ses-1_task-rEEG_eeg.edf"
+      ],
+      "duration_seconds": 306.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "Routine",
+      "session_id": "1",
+      "site_id": "S0001",
+      "subject_id": "sub-S0001120307857"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0001/sub-S0001121093581/ses-8/eeg/sub-S0001121093581_ses-8_task-cEEG_eeg.edf"
+      ],
+      "duration_seconds": 306.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "LTM",
+      "session_id": "8",
+      "site_id": "S0001",
+      "subject_id": "sub-S0001121093581"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0002/sub-S0002115872654/ses-3/eeg/sub-S0002115872654_ses-3_task-rEEG_eeg.edf"
+      ],
+      "duration_seconds": 307.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "Routine",
+      "session_id": "3",
+      "site_id": "S0002",
+      "subject_id": "sub-S0002115872654"
+    },
+    {
+      "candidate_source_keys": [
+        "EEG/bids/S0001/sub-S0001115029304/ses-2/eeg/sub-S0001115029304_ses-2_task-rEEG_eeg.edf"
+      ],
+      "duration_seconds": 308.0,
+      "local_target_dir": "data/raw/eeg",
+      "service_name": "Routine",
+      "session_id": "2",
+      "site_id": "S0001",
+      "subject_id": "sub-S0001115029304"
+    }
+  ]
+}
