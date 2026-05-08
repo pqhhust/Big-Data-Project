@@ -1,0 +1,25 @@
+# Cassandra 4.1 — single-replica StatefulSet for the BrainWatch demo.
+#
+# Owner: Dat.
+#
+# Resources to add (Dat: replace the stub):
+#   1. Service           — headless `cassandra-svc` (clusterIP: None) for
+#                          stable DNS so the spark pods can reach `cassandra-0.cassandra-svc`.
+#   2. StatefulSet       — 1 replica, image `cassandra:4.1`,
+#                          volumeClaimTemplate for /var/lib/cassandra,
+#                          ports: 9042 (CQL), 7000 (intra-node).
+#                          Liveness probe: exec `nodetool status`,
+#                          initialDelaySeconds 60, periodSeconds 30.
+#                          Resources: requests cpu=500m mem=1Gi, limits cpu=2 mem=4Gi.
+#   3. Job (optional)    — schema bootstrap. Could be a one-shot Job that
+#                          runs `cqlsh` and applies the CREATE KEYSPACE / TABLE
+#                          statements from `cassandra_sink.py`. Or just call
+#                          `init_keyspace()` once from the spark pod. Pick one.
+#
+# Cluster contact point from inside the brainwatch namespace:
+#   cassandra-0.cassandra-svc.brainwatch.svc.cluster.local
+
+# Dat: replace this stub with the Service + StatefulSet (and optional Job).
+apiVersion: v1
+kind: List
+items: []

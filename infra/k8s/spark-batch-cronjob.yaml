@@ -1,0 +1,25 @@
+# Daily Spark batch CronJob: bronze → silver → gold.
+#
+# Owner: Dat (manifest), Kim-Hung (the spark code being invoked).
+#
+# Schedule: 03:00 UTC daily (low load on the cluster).
+# Dat: implement.
+#   - kind: CronJob, schedule: "0 3 * * *", concurrencyPolicy: Forbid.
+#   - container image: bitnami/spark:3.5
+#   - command:
+#       /opt/bitnami/spark/bin/spark-submit \
+#         --master local[*] \
+#         --conf spark.sql.shuffle.partitions=8 \
+#         --py-files /opt/brainwatch/brainwatch.zip \
+#         /opt/brainwatch/run_batch.py
+#     where run_batch.py is a tiny wrapper that calls
+#     `silver_layer.main()` then `gold_layer.main()`.
+#     (Kim-Hung adds run_batch.py under scripts/ once silver+gold are ready.)
+#   - mount the bronze/silver/gold/checkpoints PVCs at /data/lake.
+#   - env from configmap brainwatch-config.
+#   - successfulJobsHistoryLimit: 3, failedJobsHistoryLimit: 3.
+
+# Dat: replace this stub with the CronJob spec.
+apiVersion: v1
+kind: List
+items: []

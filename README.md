@@ -3,7 +3,7 @@
 Lambda-architecture pipeline for hospital-scale EEG monitoring with EHR enrichment.
 Stack: Kafka → Spark (batch + Structured Streaming) → Cassandra/MongoDB on Kubernetes.
 
-> **Week 2 work breakdown is in [`docs/week2-work-packages.md`](docs/week2-work-packages.md).**
+> ⚡ **Final sprint plan (2 weeks left): [`docs/final-sprint-plan.md`](docs/final-sprint-plan.md).**
 > Architecture: [`docs/architecture.md`](docs/architecture.md) · Lead: Quang-Hung.
 
 ---
@@ -74,13 +74,12 @@ pytest tests/test_eeg_inventory.py::test_profile_writes_summary -v
 - `Hunng`, `Hùng`, `quankim`, `nguyendinhdat`, `trang` — per-member working branches.
 - Open a PR into `main` once your work-package acceptance criteria pass.
 
-## 6. Roadmap
+## 6. Compressed schedule (2 weeks left)
 
-| Week | Focus                                           | Status      |
-| ---- | ----------------------------------------------- | ----------- |
-| 1    | Foundation, architecture, project scaffold      | Complete    |
-| 2    | EEG/EHR download + Kafka ingestion + bronze     | In progress |
-| 3    | Batch layer — Bronze → Silver → Gold Spark jobs | Planned     |
-| 4    | Speed layer — Structured Streaming & alerts     | Planned     |
-| 5    | Serving layer, dashboards, hardening            | Planned     |
-| 6    | End-to-end integration, report, demo            | Planned     |
+| Phase                  | Dates                          | Deliverable                                            |
+| ---------------------- | ------------------------------ | ------------------------------------------------------ |
+| **Sprint** (this week) | Fri 2026-05-08 → Thu 2026-05-14 | Code complete + deployed on K8s; tag `v0.3.0-rc1`      |
+| **Report** (next week) | Fri 2026-05-15 → Thu 2026-05-21 | Final report, slides, ≤ 5-min demo video; tag `v1.0.0` |
+
+Per-member work packages, owners, acceptance criteria, and daily cadence
+are in [`docs/final-sprint-plan.md`](docs/final-sprint-plan.md).

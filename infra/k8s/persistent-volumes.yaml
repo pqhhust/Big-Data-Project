@@ -1,0 +1,23 @@
+# Persistent volume claims for the BrainWatch data lake + Cassandra.
+#
+# Owner: Dat.
+#
+# Single-node lab cluster — ReadWriteOnce is fine. Storage class is the
+# cluster default; check with `kubectl get storageclass` and adjust if the
+# default isn't what you expect (`local-path` on k3d, `standard` on minikube).
+#
+# Dat: implement each PVC. Suggested sizes (tune for your cluster):
+#   - bronze:        20Gi   (raw landed events, JSONL/Parquet)
+#   - silver:        20Gi   (deduped, version-resolved)
+#   - gold:          10Gi   (rollups + summaries; small)
+#   - checkpoints:    5Gi   (Spark structured streaming state)
+#   - cassandra:     20Gi   (alert + patient_state tables)
+#
+# Kustomize trick if you want to share one PVC across pods on a single node:
+# use a shared ReadWriteMany PV backed by hostPath if the cluster supports it.
+# Otherwise mount each lake zone PVC into the spark pod that writes it.
+
+# Dat: replace this stub with 5 PersistentVolumeClaim resources.
+apiVersion: v1
+kind: List
+items: []

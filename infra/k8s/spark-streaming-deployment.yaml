@@ -1,0 +1,34 @@
+# Spark Structured Streaming Deployment — replaces the bootstrap Job.
+#
+# Owner: Dat (manifest), Quang-Hung (the speed-layer code being invoked).
+#
+# Why a Deployment instead of a Job?  Streaming queries are long-lived and
+# we want Kubernetes to restart them on pod crashes. CrashLoopBackoff is
+# more useful than Job/Failed for our purposes.
+#
+# Dat: implement.
+#   - kind: Deployment, replicas: 1, restartPolicy: Always.
+#   - image: bitnami/spark:3.5
+#   - command:
+#       /opt/bitnami/spark/bin/spark-submit \
+#         --master local[*] \
+#         --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,com.datastax.spark:spark-cassandra-connector_2.12:3.5.0 \
+#         --py-files /opt/brainwatch/brainwatch.zip \
+#         -m brainwatch.processing.speed_layer \
+#         --bronze /data/lake/bronze \
+#         --checkpoint /data/checkpoints \
+#         --kafka kafka:9092 \
+#         --cassandra cassandra-svc
+#   - volumeMounts: bronze (RO), checkpoints (RW).
+#   - env from configmap brainwatch-config.
+#   - liveness probe: tcp port 4040 (Spark UI).
+#   - readiness probe: same.
+#   - resources: requests cpu=1 mem=2Gi, limits cpu=2 mem=4Gi.
+#
+# Don't forget a Service exposing port 4040 if you want to reach the Spark UI
+# via `kubectl port-forward`.
+
+# Dat: replace this stub with the Deployment spec.
+apiVersion: v1
+kind: List
+items: []
