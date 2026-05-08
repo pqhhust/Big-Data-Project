@@ -51,8 +51,8 @@ Big-Data-Project/
 ## Quick Start
 
 ```bash
-# Setup (uses uffm conda env)
-conda activate uffm
+# Setup (Python 3.11 venv or your conda env of choice)
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 # Full setup guide: docs/setup-guide.md

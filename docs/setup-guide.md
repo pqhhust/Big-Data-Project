@@ -1,15 +1,16 @@
 # BrainWatch — Environment Setup Guide
 
-## 1. Python Environment (uffm)
+## 1. Python Environment
 
-The project borrows the existing `uffm` conda environment (Python 3.11).
+Python 3.11+ is required. Use a venv or your conda env of choice.
 
 ```bash
-# Activate
-conda activate uffm
+# Activate (pick one)
+python3.11 -m venv .venv && source .venv/bin/activate
+# or: conda create -n brainwatch python=3.11 && conda activate brainwatch
 
 # Install brainwatch in editable mode
-cd /mnt/disk1/aiotlab/pqhung/ipp-proposal/Big-Data-Project
+cd <path-to-this-repo>
 pip install -e ".[dev]"
 
 # Optional: Kafka client (only needed when publishing to real Kafka)
@@ -112,7 +113,7 @@ kubectl apply -f infra/k8s/spark-streaming-job.yaml
 ## 6. Run Tests
 
 ```bash
-conda activate uffm
+source .venv/bin/activate   # or your conda env
 pytest -v
 ```
 

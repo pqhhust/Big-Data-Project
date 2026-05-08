@@ -9,8 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Environment (uses shared uffm conda env, Python 3.11)
-conda activate uffm
+# Environment (Python 3.11 venv or any conda env you prefer)
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # core + pytest only — Spark/Kafka are optional extras
 pip install -e ".[dev,kafka]"      # add kafka-python
 pip install -e ".[dev,spark]"      # add pyspark 3.5

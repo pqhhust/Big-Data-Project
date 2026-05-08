@@ -3,12 +3,13 @@ architecture: lambda
 
 data_sources:
   eeg:
+    # paths are relative to the repo root; adjust to wherever you keep the BDSP metadata CSVs.
     source_reference_csvs:
-      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/S0001_meta.csv
-      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/S0002_meta.csv
-      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/I0002_meta.csv
-      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/I0003_meta.csv
-      - /mnt/disk1/aiotlab/pqhung/ipp-proposal/STELAR-private/pretrain/reve/metadata/I0009_meta.csv
+      - ../STELAR-private/pretrain/reve/metadata/S0001_meta.csv
+      - ../STELAR-private/pretrain/reve/metadata/S0002_meta.csv
+      - ../STELAR-private/pretrain/reve/metadata/I0002_meta.csv
+      - ../STELAR-private/pretrain/reve/metadata/I0003_meta.csv
+      - ../STELAR-private/pretrain/reve/metadata/I0009_meta.csv
     local_raw_root: data/raw/eeg
     local_manifest_path: artifacts/generated/eeg_subset_manifest.json
     target_subset_hours: 8
