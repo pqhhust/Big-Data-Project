@@ -13,3 +13,8 @@ __pycache__/
 data/
 tmp/
 artifacts/generated/
+artifacts/week2/kafka_fallback.jsonl
+artifacts/week2/synthetic_ehr.jsonl
+# never commit AWS keys, even if someone copies them into the repo
+**/rootkey.csv
+credentials/

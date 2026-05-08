@@ -1,0 +1,30 @@
+# BrainWatch local development stack: Kafka (KRaft) + Spark + Kafka UI.
+#
+# Owner: Dat.
+#
+# Usage:
+#   docker compose -f infra/docker/docker-compose.yml up -d
+#   docker compose -f infra/docker/docker-compose.yml down
+#
+# Service URLs once up:
+#   Kafka UI       http://localhost:8080
+#   Spark Master   http://localhost:8081
+#   Kafka internal kafka:9092      (use this from another container)
+#   Kafka external localhost:9094  (use this from your host machine)
+#
+# Dat: implement the full compose file. Required services:
+#   1. kafka       — apache/kafka:3.9.0, KRaft mode (no Zookeeper).
+#                    Listeners: PLAINTEXT 9092, CONTROLLER 9093, EXTERNAL 9094.
+#                    KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+#                    KAFKA_NUM_PARTITIONS: "4"
+#                    KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+#   2. kafka-ui    — provectuslabs/kafka-ui:latest on port 8080,
+#                    KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092.
+#   3. spark-master — bitnami/spark:3.5, port 7077, UI 8081.
+#   4. spark-worker — bitnami/spark:3.5, joins spark://spark-master:7077.
+#
+# Pair with Kim-Hung if you hit listener-config issues — that's the usual
+# stumble.
+
+# Dat: replace this stub with the real compose definition.
+services: {}
