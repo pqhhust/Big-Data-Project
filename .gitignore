@@ -14,3 +14,4 @@ data/
 tmp/
 artifacts/generated/
 artifacts/week2/kafka_fallback.jsonl
+CLAUDE.md
