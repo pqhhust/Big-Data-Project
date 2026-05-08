@@ -13,6 +13,11 @@ data_sources:
     local_manifest_path: artifacts/generated/eeg_subset_manifest.json
     target_subset_hours: 8
     target_subset_sessions: 12
+    download:
+      target_hours: 100
+      min_duration_seconds: 60
+      max_duration_seconds: 1200
+      manifest_path: artifacts/week2/download_manifest.json
   ehr:
     local_raw_root: data/raw/ehr
     bronze_root: data/bronze/ehr

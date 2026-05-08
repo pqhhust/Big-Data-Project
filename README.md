@@ -27,44 +27,65 @@ BrainWatch is a 6-week milestone project that implements a full Lambda-architect
 ```
 Big-Data-Project/
 ├── configs/              # Environment and pipeline configuration
-├── docs/                 # Architecture design & execution checklists
-├── infra/k8s/            # Kubernetes deployment manifests
-├── scripts/              # CLI entry points for data utilities
+├── docs/                 # Architecture design, checklists, setup guide
+├── infra/
+│   ├── docker/           # Docker Compose (Kafka + Spark local stack)
+│   └── k8s/              # Kubernetes deployment manifests
+├── scripts/              # CLI entry points
+│   ├── download_bdsp_subset.py     # ~100h download manifest builder
+│   ├── replay_to_kafka.py          # Unified EEG + EHR replay simulator
+│   ├── profile_eeg_metadata.py     # Metadata profiling
+│   └── build_local_subset_manifest.py
 ├── src/brainwatch/       # Core Python package
 │   ├── config/           #   Settings loader
 │   ├── contracts/        #   Canonical event schemas (EEG, EHR, Feature, Alert)
-│   ├── ingestion/        #   Metadata profiler & subset manifest builder
-│   ├── processing/       #   Spark batch & streaming pipeline scaffolds
+│   ├── ingestion/        #   Producers, normalisers, bronze writer, DLQ
+│   ├── processing/       #   Spark batch & streaming pipelines
 │   └── serving/          #   Anomaly classification rules
-├── tests/                # Unit tests
-└── artifacts/week1/      # Generated profiling & manifest outputs
+├── tests/                # 24 unit tests
+└── artifacts/
+    ├── week1/            # Metadata profile + subset manifest
+    └── week2/            # Download manifest + event replay
 ```
 
 ## Quick Start
 
-### 1. Profile EEG metadata
-
 ```bash
-python scripts/profile_eeg_metadata.py \
-  --csv <path-to-site-metadata-1>.csv \
-  --csv <path-to-site-metadata-2>.csv \
-  --output artifacts/week1/eeg_metadata_profile.json
+# Setup (uses uffm conda env)
+conda activate uffm
+pip install -e ".[dev]"
+
+# Full setup guide: docs/setup-guide.md
 ```
 
-### 2. Build local subset manifest
+### 1. Generate 100h download manifest (5 BDSP sites, short recordings)
 
 ```bash
-python scripts/build_local_subset_manifest.py \
-  --csv <path-to-site-metadata>.csv \
-  --output artifacts/week1/eeg_subset_manifest.json \
-  --max-sessions 12 \
-  --target-hours 8
+python scripts/download_bdsp_subset.py \
+  --csv-dir ../STELAR-private/pretrain/reve/metadata \
+  --output artifacts/week2/download_manifest.json \
+  --target-hours 100
 ```
 
-### 3. Run tests
+### 2. Replay events (file fallback — no Kafka needed)
 
 ```bash
-pytest
+python scripts/replay_to_kafka.py \
+  --manifest artifacts/week2/download_manifest.json \
+  --fallback
+```
+
+### 3. Start local Kafka stack (optional)
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up -d
+# Kafka UI: http://localhost:8080
+```
+
+### 4. Run tests
+
+```bash
+pytest -v   # 24 tests, all pass without Docker/Kafka
 ```
 
 ## Week 1 Deliverables
@@ -83,12 +104,28 @@ pytest
 | Metadata profile artifact | Done | [`artifacts/week1/eeg_metadata_profile.json`](artifacts/week1/eeg_metadata_profile.json) |
 | Subset manifest artifact | Done | [`artifacts/week1/eeg_subset_manifest.json`](artifacts/week1/eeg_subset_manifest.json) |
 
+## Week 2 Deliverables
+
+| Deliverable | Status | Location |
+|---|---|---|
+| 100h download manifest (1,436 subjects, 5 sites) | Done | [`artifacts/week2/download_manifest.json`](artifacts/week2/download_manifest.json) |
+| EEG event producer (Kafka + file fallback) | Done | [`src/brainwatch/ingestion/eeg_producer.py`](src/brainwatch/ingestion/eeg_producer.py) |
+| Synthetic EHR generator + normaliser | Done | [`src/brainwatch/ingestion/ehr_normalizer.py`](src/brainwatch/ingestion/ehr_normalizer.py) |
+| Kafka helpers + FileProducer fallback | Done | [`src/brainwatch/ingestion/kafka_helpers.py`](src/brainwatch/ingestion/kafka_helpers.py) |
+| Bronze zone writer with dedup | Done | [`src/brainwatch/ingestion/bronze_writer.py`](src/brainwatch/ingestion/bronze_writer.py) |
+| Dead-letter queue | Done | [`src/brainwatch/ingestion/dead_letter.py`](src/brainwatch/ingestion/dead_letter.py) |
+| Structured Streaming: Kafka → Bronze | Done | [`src/brainwatch/processing/bronze_ingest.py`](src/brainwatch/processing/bronze_ingest.py) |
+| Unified replay simulator | Done | [`scripts/replay_to_kafka.py`](scripts/replay_to_kafka.py) |
+| Docker Compose (Kafka + Spark) | Done | [`infra/docker/docker-compose.yml`](infra/docker/docker-compose.yml) |
+| K8s: Kafka StatefulSet + Zookeeper | Done | [`infra/k8s/`](infra/k8s/) |
+| 24 unit tests (all passing) | Done | [`tests/`](tests/) |
+
 ## Roadmap
 
 | Week | Focus | Status |
 |---|---|---|
 | 1 | Foundation, architecture, project scaffold | **Complete** |
-| 2 | EEG/EHR ingestion layer & Kafka integration | Planned |
+| 2 | EEG/EHR ingestion layer & Kafka integration | **Complete** |
 | 3 | Batch layer — Bronze/Silver/Gold Spark jobs | Planned |
 | 4 | Speed layer — Structured Streaming & alerts | Planned |
 | 5 | Serving layer, dashboards, hardening | Planned |
@@ -96,5 +133,6 @@ pytest
 
 ## Notes
 
-- PySpark is listed as an optional dependency; the Spark scaffold is validated structurally in Week 1 and will be executed against a live cluster from Week 2 onward.
+- PySpark and kafka-python are optional dependencies — all tests pass without them.
 - The detailed internal 6-week execution plan is maintained locally and excluded from version control.
+- See [`docs/setup-guide.md`](docs/setup-guide.md) for full environment setup instructions.

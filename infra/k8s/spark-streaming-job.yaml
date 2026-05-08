@@ -1,18 +1,48 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: brainwatch-streaming-bootstrap
+  name: brainwatch-bronze-ingest
   namespace: brainwatch
 spec:
   template:
+    metadata:
+      labels:
+        app: brainwatch-bronze-ingest
     spec:
-      restartPolicy: Never
+      restartPolicy: OnFailure
       containers:
-        - name: spark-streaming-bootstrap
+        - name: bronze-ingest
           image: bitnami/spark:3.5
           command:
-            - /bin/sh
-            - -lc
+            - /bin/bash
+            - -c
             - |
-              echo "Replace this bootstrap job with Spark Operator or spark-submit integration in week 2."
-              echo "Expected topics: eeg.raw, ehr.updates, features.realtime, alerts.anomaly"
+              spark-submit \
+                --master spark://spark-master:7077 \
+                --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
+                --conf spark.sql.streaming.checkpointLocation=/data/checkpoints \
+                /app/scripts/start_bronze_ingest.py
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: brainwatch-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: BRONZE_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: brainwatch-config
+                  key: BRONZE_PREFIX
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
