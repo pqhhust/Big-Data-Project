@@ -10,14 +10,15 @@ Stack: Kafka → Spark (batch + Structured Streaming) → Cassandra/MongoDB on K
 
 ## 1. Environment setup
 
-We share the existing `uffm` conda env on the lab GPU server (Python 3.11).
+Python 3.11 is required. Use a venv or your conda env of choice.
 
 ```bash
-# 1) Activate the shared env
-conda activate uffm
+# 1) Create + activate a Python 3.11 environment
+python3.11 -m venv .venv && source .venv/bin/activate
+# (or: conda create -n brainwatch python=3.11 && conda activate brainwatch)
 
 # 2) Install the package in editable mode (pytest only — no Spark/Kafka)
-cd /mnt/disk1/aiotlab/pqhung/ipp-proposal/Big-Data-Project
+cd <path-to-this-repo>
 pip install -e ".[dev]"
 
 # 3) Add Kafka/Spark when you actually need them (optional extras)
@@ -33,10 +34,10 @@ All week-1 tests pass without Docker, Kafka, or Spark — that is intentional.
 
 ## 2. AWS credentials (for downloading BDSP EEG)
 
-The download script reads AWS keys from a CSV file. The lab key lives at:
+The download script reads AWS keys from a CSV file. Default location:
 
 ```
-/mnt/disk1/aiotlab/pqhung/ipp-proposal/credentials/rootkey.csv
+~/credentials/rootkey.csv     # override with --credentials or $BDSP_CREDENTIALS
 ```
 
 Format (standard AWS IAM root-key export):

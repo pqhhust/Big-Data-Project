@@ -31,7 +31,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-DEFAULT_CREDS = "/mnt/disk1/aiotlab/pqhung/ipp-proposal/credentials/rootkey.csv"
+DEFAULT_CREDS = os.path.expanduser("~/credentials/rootkey.csv")
 
 
 # ---------------------------------------------------------------------------

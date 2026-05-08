@@ -154,9 +154,8 @@ Pairing rule: every PR needs one reviewer from {Quang-Hung, Kim-Hung, Kim-Quan}.
 1. `scripts/download_eeg_ehr.py`:
    - `--csv-dir` points at the BDSP metadata CSVs (sibling repo
      `../STELAR-private/pretrain/reve/metadata`).
-   - `--credentials` defaults to
-     `/mnt/disk1/aiotlab/pqhung/ipp-proposal/credentials/rootkey.csv` (or
-     `$BDSP_CREDENTIALS`).
+   - `--credentials` defaults to `~/credentials/rootkey.csv`
+     (override with `--credentials <path>` or `$BDSP_CREDENTIALS`).
    - `--target-hours` (default 100), `--min-duration`, `--max-duration` filters.
    - `--dry-run` prints the manifest only.
    - `--download` actually pulls EDF files via boto3 to `--download-root data/raw/eeg`.
