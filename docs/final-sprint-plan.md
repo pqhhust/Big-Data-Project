@@ -27,7 +27,7 @@ Re-assignment below is grounded in observed work on each member's branch
 | **Dat**        | `nguyendinhdat`     | 1060   | `CODE_PLAN.md` only — **no code yet**                         | Strong planner/architect; suited to YAML-heavy K8s manifests + report sections, not the trickiest code.|
 
 **Re-assignment rationale.** Kim-Quan ships the cleanest code that already
-fits the codebase, so he is the strongest senior after Quang-Hung — promoted
+fits the codebase, so he is the strongest contributor after Quang-Hung — promoted
 to **batch layer owner** (silver + gold). Kim-Hung knows distributed clients
 deeply (proven by his Kafka producer config); the Cassandra Python driver
 follows the same pattern, so he gets **serving + alerts**. Dat has not yet
@@ -88,7 +88,7 @@ path + E2E demo + tests + dashboard** — more responsibility than the original
 
 ---
 
-### Kim-Quan (senior, batch layer owner) — Fri → Thu
+### Kim-Quan (batch layer owner) — Fri → Thu
 
 **Files you own**
 - `src/brainwatch/processing/silver_layer.py`
@@ -133,7 +133,7 @@ path + E2E demo + tests + dashboard** — more responsibility than the original
 
 ---
 
-### Kim-Hung (senior, serving owner) — Fri → Thu
+### Kim-Hung (serving owner) — Fri → Thu
 
 **Files you own**
 - `src/brainwatch/serving/cassandra_sink.py`
@@ -174,7 +174,7 @@ path + E2E demo + tests + dashboard** — more responsibility than the original
 
 ---
 
-### Dat (junior, K8s + deploy) — Fri → Thu
+### Dat (K8s + deploy) — Fri → Thu
 
 **Files you own**
 - `infra/k8s/cassandra-statefulset.yaml`
@@ -212,7 +212,7 @@ path + E2E demo + tests + dashboard** — more responsibility than the original
 
 ---
 
-### Trang (junior, demo + tests + EHR ingestion) — Fri → Thu
+### Trang (demo + tests + EHR ingestion) — Fri → Thu
 
 **Files you own**
 - `scripts/end_to_end_demo.py`

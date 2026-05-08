@@ -20,8 +20,8 @@ bronze zone of the data lake with deduplication and a dead-letter queue.
 | Member         | Role                       | Strength                                             |
 | -------------- | -------------------------- | ---------------------------------------------------- |
 | **Quang-Hung** | Lead / architect           | Owns integration, Spark, code review                 |
-| **Kim-Hung**   | Senior engineer            | Kafka + bronze writer (most plumbing-heavy modules)  |
-| **Kim-Quan**   | Senior engineer            | Producers + EHR domain modelling                     |
+| **Kim-Hung**   | Engineer                   | Kafka + bronze writer (most plumbing-heavy modules)  |
+| **Kim-Quan**   | Engineer                   | Producers + EHR domain modelling                     |
 | **Dat**        | Engineer                   | DLQ + local Docker stack                             |
 | **Trang**      | Engineer                   | Download script CLI + tests                          |
 

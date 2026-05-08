@@ -52,7 +52,7 @@ def load_aws_credentials(path: str | Path) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Manifest builder  ── Trang (junior-friendly, well-scoped)
+# Manifest builder  ── Trang
 # ---------------------------------------------------------------------------
 
 def build_manifest(
