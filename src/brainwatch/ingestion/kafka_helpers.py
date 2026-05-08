@@ -85,9 +85,11 @@ class FileProducer:
         pass
 
     def flush(self) -> None:
+        # Kim-Hung: real no-op — file IO is synchronous, nothing to flush.
         pass
 
     def close(self) -> None:
+        # Kim-Hung: real no-op — we open/close the file per send().
         pass
 
 

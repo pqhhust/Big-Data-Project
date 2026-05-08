@@ -51,6 +51,7 @@ def main() -> None:
     #                                               args.ehr_events_per_subject)
     #   4. ehr_stats  = publish_ehr_events(ehr_events, topic=args.ehr_topic, ...)
     #   5. print a single JSON summary line so it's parseable in CI.
+    # Quang-Hung: code the orchestration here.
     pass
 
 

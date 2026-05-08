@@ -51,6 +51,7 @@ class _FakeSession:
       - on SELECT: return matching rows.
       - on CREATE: no-op.
     """
+    # Trang: code the _FakeSession body here.
     pass
 
 
@@ -78,6 +79,7 @@ def test_upsert_patient_state_overwrites_previous():
 
 class _FakeProducer:
     """Trang: implement. Records every (topic, value) pair sent."""
+    # Trang: code the _FakeProducer body here.
     pass
 
 

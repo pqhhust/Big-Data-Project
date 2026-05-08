@@ -94,6 +94,7 @@ def main() -> None:
     #   3. for renderer in (hist, timeline, quality, table):
     #          path = renderer(alerts, args.output / "<name>.{png,md}")
     #          print(f"wrote {path}")
+    # Trang: code the dashboard orchestration here.
     pass
 
 

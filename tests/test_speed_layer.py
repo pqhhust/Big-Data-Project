@@ -13,6 +13,9 @@ import pytest
 
 
 def test_module_importable_without_pyspark():
+    """Trang: ``importlib.import_module("brainwatch.processing.speed_layer")``
+    must succeed even without pyspark. Protects the deferred-import contract."""
+    # Trang: code the import assertion here.
     pass
 
 

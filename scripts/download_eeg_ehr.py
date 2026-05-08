@@ -177,6 +177,7 @@ def main() -> None:
     #   3. if args.download: load_aws_credentials(args.credentials)
     #                        → download_subset(...)
     #   4. print summary stats: subjects, hours, downloaded/failed counts.
+    # Quang-Hung: code the orchestration here.
     pass
 
 

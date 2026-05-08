@@ -41,4 +41,5 @@ def test_load_aws_credentials_parses_csv(tmp_path: Path):
 
     DO NOT use the real credentials file in this test — write a fake one in
     tmp_path."""
+    # Trang: code the credentials-loader test here.
     pass
