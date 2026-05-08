@@ -18,3 +18,4 @@ artifacts/week2/synthetic_ehr.jsonl
 # never commit AWS keys, even if someone copies them into the repo
 **/rootkey.csv
 credentials/
+CLAUDE.md
