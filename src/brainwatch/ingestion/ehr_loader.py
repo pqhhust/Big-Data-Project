@@ -8,81 +8,101 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections import Counter, defaultdict
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from brainwatch.contracts.events import EHREvent
 
 
+CANONICAL_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "patient_id": ("patient_id", "PatientID"),
+    "encounter_id": ("encounter_id", "EncounterID"),
+    "event_time": ("event_time", "EventTime"),
+    "event_type": ("event_type", "EventType"),
+    "source_system": ("source_system", "SourceSystem"),
+    "version": ("version", "Version"),
+}
+
+
+def _first_present(row: dict[str, str], field_names: tuple[str, ...]) -> str | None:
+    for field_name in field_names:
+        raw_value = row.get(field_name)
+        if raw_value is not None and raw_value.strip():
+            return raw_value.strip()
+    return None
+
+
 def parse_ehr_timestamp(raw_value: str | None) -> str | None:
-    """Parse and validate EHR event timestamp.
-    
-    Args:
-        raw_value: Raw timestamp string from CSV
-        
-    Returns:
-        ISO-8601 formatted timestamp or None if invalid
-    """
+    """Parse a CSV timestamp into ISO-8601 with a UTC suffix."""
     if not raw_value or not raw_value.strip():
         return None
-    # TODO: Implement timestamp parsing with timezone handling
-    return raw_value.strip()
+
+    normalized = raw_value.strip().replace(" ", "T")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def validate_ehr_row(row: dict[str, str]) -> tuple[bool, list[str]]:
-    """Validate a single EHR record for required fields.
-    
-    Args:
-        row: Dictionary representing one EHR record
-        
-    Returns:
-        (is_valid, list_of_missing_fields)
-    """
-    required_fields = {
-        "PatientID",
-        "EncounterID", 
-        "EventTime",
-        "EventType",
-        "SourceSystem",
-    }
-    
+    """Validate a single EHR record for required fields."""
     missing = []
-    for field in required_fields:
-        if field not in row or not row[field].strip():
-            missing.append(field)
-    
+    for canonical_name, aliases in CANONICAL_FIELD_ALIASES.items():
+        if canonical_name == "version":
+            continue
+        if _first_present(row, aliases) is None:
+            missing.append(aliases[-1])
+
     return len(missing) == 0, missing
 
 
 def build_ehr_event(row: dict[str, str]) -> EHREvent | None:
-    """Convert CSV row to EHREvent dataclass.
-    
-    Args:
-        row: Dictionary representing one EHR record
-        
-    Returns:
-        EHREvent instance or None if invalid
-    """
-    is_valid, missing_fields = validate_ehr_row(row)
+    """Convert one CSV row to an ``EHREvent``."""
+    is_valid, _missing_fields = validate_ehr_row(row)
     if not is_valid:
         return None
-    
-    event_time = parse_ehr_timestamp(row.get("EventTime"))
-    if not event_time:
+
+    patient_id = _first_present(row, CANONICAL_FIELD_ALIASES["patient_id"])
+    encounter_id = _first_present(row, CANONICAL_FIELD_ALIASES["encounter_id"])
+    event_time = parse_ehr_timestamp(
+        _first_present(row, CANONICAL_FIELD_ALIASES["event_time"])
+    )
+    event_type = _first_present(row, CANONICAL_FIELD_ALIASES["event_type"])
+    source_system = _first_present(row, CANONICAL_FIELD_ALIASES["source_system"])
+    version_raw = _first_present(row, CANONICAL_FIELD_ALIASES["version"])
+
+    if not all([patient_id, encounter_id, event_time, event_type, source_system]):
         return None
-    
-    # Build payload from extra fields
-    payload = {k: v for k, v in row.items() 
-               if k not in {"PatientID", "EncounterID", "EventTime", "EventType", "SourceSystem", "Version"}}
-    
+
+    canonical_fields = {alias for aliases in CANONICAL_FIELD_ALIASES.values() for alias in aliases}
+    payload = {
+        key: value
+        for key, value in row.items()
+        if key not in canonical_fields and value.strip()
+    }
+
+    try:
+        version = int(version_raw) if version_raw is not None else 1
+    except ValueError:
+        version = 1
+
     return EHREvent(
-        patient_id=row["PatientID"].strip(),
-        encounter_id=row["EncounterID"].strip(),
+        patient_id=patient_id,
+        encounter_id=encounter_id,
         event_time=event_time,
-        event_type=row["EventType"].strip(),
-        source_system=row["SourceSystem"].strip(),
-        version=int(row.get("Version", 1)),
+        event_type=event_type,
+        source_system=source_system,
+        version=version,
         payload=payload,
     )
 
@@ -130,6 +150,7 @@ def summarize_ehr_metadata(csv_paths: Iterable[str | Path]) -> dict[str, Any]:
                 
                 if len(sample_events) < 5:
                     from brainwatch.contracts.events import to_payload
+
                     sample_events.append(to_payload(event))
     
     return {

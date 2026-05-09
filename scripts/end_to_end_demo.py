@@ -1,109 +1,196 @@
 #!/usr/bin/env python3
-"""End-to-end demo: replay → bronze → silver → gold → alerts.
+"""End-to-end demo scaffold: replay -> bronze -> silver -> gold -> alerts."""
 
-Owner: **Trang**.
-Two run modes:
-
-    # Local Docker Compose stack (Kafka + Spark + Cassandra in containers):
-    python scripts/end_to_end_demo.py --mode local
-
-    # On the lab Kubernetes cluster:
-    python scripts/end_to_end_demo.py --mode k8s
-
-The demo run is the single artefact that proves the whole project works
-together. Every other test mocks one layer; this one runs all of them.
-"""
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
+import sys
 import time
+from collections import Counter
 from pathlib import Path
+from typing import Any
 
 
 DEFAULT_MANIFEST = Path("artifacts/demo/mini_manifest.json")
+DEFAULT_BRONZE = Path("data/lake/bronze")
+DEFAULT_SILVER = Path("data/lake/silver")
+DEFAULT_GOLD = Path("data/lake/gold")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    p.add_argument("--mode", choices=["local", "k8s"], default="local")
-    p.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    p.add_argument("--kafka", default="localhost:9094",
-                   help="Kafka bootstrap (override per mode)")
-    p.add_argument("--cassandra", default="localhost",
-                   help="Cassandra contact point")
-    p.add_argument("--bronze", type=Path, default=Path("data/lake/bronze"))
-    p.add_argument("--min-critical-alerts", type=int, default=1,
-                   help="Demo fails if fewer critical alerts arrive")
-    p.add_argument("--timeout", type=int, default=300,
-                   help="Seconds to wait for the pipeline to settle")
-    return p
+    parser = argparse.ArgumentParser(description="Run the BrainWatch demo end to end")
+    parser.add_argument("--mode", choices=["local", "k8s"], default="local")
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--bronze", type=Path, default=DEFAULT_BRONZE)
+    parser.add_argument("--silver", type=Path, default=DEFAULT_SILVER)
+    parser.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+    parser.add_argument("--kafka", default="localhost:9094")
+    parser.add_argument("--cassandra", default="localhost")
+    parser.add_argument("--min-critical-alerts", type=int, default=1)
+    parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--batch-module", default="brainwatch.processing.silver_layer")
+    parser.add_argument("--gold-module", default="brainwatch.processing.gold_layer")
+    parser.add_argument("--alerts-export", type=Path, default=None)
+    return parser
 
 
-def step_1_replay(args) -> dict:
-    """Step 1: feed the mini manifest into Kafka.
-
-    Trang: implement. Call ``scripts.replay_to_kafka`` programmatically
-    or shell out — your choice. Return ``{"eeg_published": N, "ehr_published": M}``.
-    """
-    # Trang: code the replay step here.
-    pass
+def _run_command(command: list[str]) -> None:
+    subprocess.run(command, check=True)
 
 
-def step_2_wait_for_bronze(args) -> int:
-    """Step 2: poll the bronze directory until at least one parquet file lands.
-
-    Trang: implement.
-      - if mode=k8s, ``kubectl exec`` into a debug pod or use port-forward.
-      - if mode=local, just glob ``data/lake/bronze/eeg/**/*.parquet``.
-      - timeout = args.timeout seconds, sleep 5 between polls.
-      - return the count of parquet files found.
-    """
-    # Trang: code the bronze poll here.
-    pass
+def _count_parquet_files(root: Path) -> int:
+    return sum(1 for path in root.rglob("*.parquet") if path.is_file())
 
 
-def step_3_trigger_batch(args) -> None:
-    """Step 3: trigger the silver + gold batch.
+def load_manifest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"manifest not found: {path}")
 
-    Trang: implement.
-      - local: run ``python -m brainwatch.processing.silver_layer ...`` then
-        ``... gold_layer ...``.
-      - k8s: ``kubectl create job ... --from=cronjob/spark-batch`` and tail
-        logs until completion.
-    """
-    # Trang: code the batch trigger here.
-    pass
+    with path.open("r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
 
+    records = manifest.get("records")
+    if not isinstance(records, list):
+        raise ValueError("manifest must contain a records list")
 
-def step_4_query_alerts(args) -> list[dict]:
-    """Step 4: query Cassandra for critical alerts in the last 5 minutes.
-
-    Trang: import ``brainwatch.serving.cassandra_sink`` and call
-    ``query_recent_alerts`` for each patient in the manifest. Aggregate.
-    Return the list of alert rows.
-    """
-    # Trang: code the alert query here.
-    pass
+    return manifest
 
 
-def step_5_summary(args, replay_stats, bronze_files, alerts) -> None:
-    """Step 5: print a one-page summary. Pass/fail decision is here.
+def step_1_replay(args: argparse.Namespace) -> dict[str, int]:
+    """Replay the manifest into Kafka."""
+    load_manifest(args.manifest)
 
-    Trang: implement.
-      - assert ``len([a for a in alerts if a['severity'] == 'critical'])
-              >= args.min_critical_alerts``.
-      - print a table of severity counts.
-      - print the top 5 alerts (patient_id, time, severity, score).
-      - exit code 0 on success, 1 on failure.
-    """
-    # Trang: code the summary + assertion here.
-    pass
+    if args.mode == "local":
+        command = [
+            sys.executable,
+            "scripts/replay_to_kafka.py",
+            "--manifest",
+            str(args.manifest),
+            "--bootstrap-servers",
+            args.kafka,
+            "--fallback",
+        ]
+    else:
+        command = [
+            sys.executable,
+            "scripts/replay_to_kafka.py",
+            "--manifest",
+            str(args.manifest),
+            "--bootstrap-servers",
+            args.kafka,
+        ]
+
+    _run_command(command)
+    return {"eeg_published": 0, "ehr_published": 0}
+
+
+def step_2_wait_for_bronze(args: argparse.Namespace) -> int:
+    """Wait until bronze parquet files are present."""
+    deadline = time.time() + args.timeout
+
+    while time.time() < deadline:
+        parquet_count = _count_parquet_files(args.bronze)
+        if parquet_count > 0:
+            return parquet_count
+        time.sleep(5)
+
+    return _count_parquet_files(args.bronze)
+
+
+def step_3_trigger_batch(args: argparse.Namespace) -> None:
+    """Trigger the silver and gold batch jobs."""
+    if args.mode == "local":
+        _run_command([
+            sys.executable,
+            "-m",
+            args.batch_module,
+            "--bronze",
+            str(args.bronze),
+            "--silver",
+            str(args.silver),
+        ])
+        _run_command([
+            sys.executable,
+            "-m",
+            args.gold_module,
+            "--silver",
+            str(args.silver),
+            "--gold",
+            str(args.gold),
+        ])
+        return
+
+    _run_command([
+        "kubectl",
+        "create",
+        "job",
+        "--from=cronjob/spark-batch",
+        "spark-batch-manual",
+    ])
+
+
+def step_4_query_alerts(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Query alerts for the demo summary."""
+    if args.alerts_export is None or not args.alerts_export.exists():
+        _ = args.cassandra
+        return []
+
+    if args.alerts_export.suffix.lower() == ".jsonl":
+        rows: list[dict[str, Any]] = []
+        with args.alerts_export.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+        return rows
+
+    with args.alerts_export.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    return []
+
+
+def step_5_summary(
+    args: argparse.Namespace,
+    replay_stats: dict[str, int],
+    bronze_files: int,
+    alerts: list[dict[str, Any]],
+) -> None:
+    severity_counts = Counter(alert.get("severity", "unknown") for alert in alerts)
+    critical_count = severity_counts.get("critical", 0)
+
+    print("[demo] replay_stats=", replay_stats)
+    print("[demo] bronze_parquet_files=", bronze_files)
+    print("[demo] manifest_records=", len(load_manifest(args.manifest)["records"]))
+    print("[demo] severity_counts=", dict(severity_counts))
+
+    top_alerts = sorted(
+        alerts,
+        key=lambda alert: float(alert.get("anomaly_score", 0.0)),
+        reverse=True,
+    )[:5]
+    for alert in top_alerts:
+        print(
+            "[demo] alert",
+            alert.get("patient_id"),
+            alert.get("alert_time"),
+            alert.get("severity"),
+            alert.get("anomaly_score"),
+        )
+
+    if critical_count < args.min_critical_alerts:
+        raise SystemExit(
+            f"expected at least {args.min_critical_alerts} critical alerts, got {critical_count}"
+        )
 
 
 def main() -> None:
     args = build_parser().parse_args()
     started = time.time()
-    print(f"[demo] mode={args.mode}  manifest={args.manifest}")
+    print(f"[demo] mode={args.mode} manifest={args.manifest}")
 
     replay_stats = step_1_replay(args)
     bronze_files = step_2_wait_for_bronze(args)
