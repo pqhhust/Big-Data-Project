@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -28,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
     parser.add_argument("--kafka", default="localhost:9094")
     parser.add_argument("--cassandra", default="localhost")
+    parser.add_argument("--cassandra-namespace", default="brainwatch")
+    parser.add_argument("--cassandra-pod", default="cassandra-0")
     parser.add_argument("--min-critical-alerts", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--batch-module", default="brainwatch.processing.silver_layer")
@@ -36,8 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_command(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+def _run_command(command: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=True, text=True, capture_output=capture_output)
 
 
 def _count_parquet_files(root: Path) -> int:
@@ -56,6 +59,98 @@ def load_manifest(path: Path) -> dict[str, Any]:
         raise ValueError("manifest must contain a records list")
 
     return manifest
+
+
+def _load_json_records(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
+
+    if path.suffix.lower() == ".jsonl":
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                if isinstance(record, dict):
+                    rows.append(record)
+        return rows
+
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if isinstance(payload, list):
+        return [record for record in payload if isinstance(record, dict)]
+
+    if isinstance(payload, dict):
+        records = payload.get("records")
+        if isinstance(records, list):
+            return [record for record in records if isinstance(record, dict)]
+
+    return rows
+
+
+def _parse_cqlsh_json_output(output: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in output.splitlines():
+        text = line.strip()
+        if not text.startswith("{"):
+            continue
+        try:
+            record = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            rows.append(record)
+    return rows
+
+
+def _query_alerts_from_cassandra(args: argparse.Namespace) -> list[dict[str, Any]]:
+    query = (
+        "PAGING OFF; "
+        "SELECT JSON patient_id, session_id, alert_time, severity, "
+        "anomaly_score, explanation FROM brainwatch.alerts;"
+    )
+
+    if args.mode == "k8s":
+        command = [
+            "kubectl",
+            "-n",
+            args.cassandra_namespace,
+            "exec",
+            args.cassandra_pod,
+            "--",
+            "cqlsh",
+            "-e",
+            query,
+        ]
+    else:
+        cqlsh = shutil.which("cqlsh")
+        if cqlsh is None:
+            return []
+        command = [cqlsh, args.cassandra, "9042", "-e", query]
+
+    try:
+        result = _run_command(command, capture_output=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    return _parse_cqlsh_json_output(result.stdout)
+
+
+def _query_alerts(args: argparse.Namespace) -> list[dict[str, Any]]:
+    if args.alerts_export is not None and args.alerts_export.exists():
+        return _load_json_records(args.alerts_export)
+
+    alerts = _query_alerts_from_cassandra(args)
+    if alerts:
+        return alerts
+
+    if args.mode == "local":
+        fallback_export = Path("artifacts/demo/alerts_export.jsonl")
+        return _load_json_records(fallback_export)
+
+    return []
 
 
 def step_1_replay(args: argparse.Namespace) -> dict[str, int]:
@@ -82,7 +177,22 @@ def step_1_replay(args: argparse.Namespace) -> dict[str, int]:
             args.kafka,
         ]
 
-    _run_command(command)
+    result = _run_command(command, capture_output=True)
+
+    for line in reversed(result.stdout.splitlines()):
+        text = line.strip()
+        if not text.startswith("{"):
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return {
+                "eeg_published": int(payload.get("eeg_published", 0)),
+                "ehr_published": int(payload.get("ehr_published", 0)),
+            }
+
     return {"eeg_published": 0, "ehr_published": 0}
 
 
@@ -122,35 +232,36 @@ def step_3_trigger_batch(args: argparse.Namespace) -> None:
         ])
         return
 
+    job_name = f"spark-batch-manual-{int(time.time())}"
     _run_command([
         "kubectl",
+        "-n",
+        args.cassandra_namespace,
         "create",
         "job",
         "--from=cronjob/spark-batch",
-        "spark-batch-manual",
+        job_name,
+    ])
+
+    _run_command([
+        "kubectl",
+        "-n",
+        args.cassandra_namespace,
+        "wait",
+        "--for=condition=complete",
+        f"job/{job_name}",
+        f"--timeout={args.timeout}s",
     ])
 
 
 def step_4_query_alerts(args: argparse.Namespace) -> list[dict[str, Any]]:
     """Query alerts for the demo summary."""
-    if args.alerts_export is None or not args.alerts_export.exists():
-        _ = args.cassandra
-        return []
+    if args.alerts_export is None and args.mode == "local":
+        default_export = Path("artifacts/demo/alerts_export.jsonl")
+        if default_export.exists():
+            args.alerts_export = default_export
 
-    if args.alerts_export.suffix.lower() == ".jsonl":
-        rows: list[dict[str, Any]] = []
-        with args.alerts_export.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if line:
-                    rows.append(json.loads(line))
-        return rows
-
-    with args.alerts_export.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    if isinstance(payload, list):
-        return [row for row in payload if isinstance(row, dict)]
-    return []
+    return _query_alerts(args)
 
 
 def step_5_summary(
@@ -165,6 +276,7 @@ def step_5_summary(
     print("[demo] replay_stats=", replay_stats)
     print("[demo] bronze_parquet_files=", bronze_files)
     print("[demo] manifest_records=", len(load_manifest(args.manifest)["records"]))
+    print("[demo] alerts_total=", len(alerts))
     print("[demo] severity_counts=", dict(severity_counts))
 
     top_alerts = sorted(
