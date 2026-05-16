@@ -67,6 +67,13 @@ def main() -> None:
     )
     print(f"  EHR publish: {json.dumps(ehr_stats)}")
 
+    # Emit a single JSON summary line for CI/demo parsers to consume.
+    summary = {
+        "eeg_published": int(eeg_stats.get("sent", 0)),
+        "ehr_published": int(ehr_stats.get("sent", 0)),
+    }
+    print(json.dumps(summary))
+
     print("\nReplay complete.")
 
 
