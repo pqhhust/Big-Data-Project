@@ -11,12 +11,33 @@ for each subject in the download manifest, so the join in the speed layer
 """
 from __future__ import annotations
 
+import json
+import random
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from brainwatch.contracts.events import EHREvent
 
 EHR_EVENT_TYPES = ("vital_signs", "lab_result", "medication", "critical_lab", "note")
+
+
+def _iso_z(value: datetime) -> str:
+  return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _load_manifest_records(manifest_path: Path) -> list[dict[str, Any]]:
+  with manifest_path.open("r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+  if isinstance(payload, dict):
+    records = payload.get("records")
+    if isinstance(records, list):
+      return [record for record in records if isinstance(record, dict)]
+  if isinstance(payload, list):
+    return [record for record in payload if isinstance(record, dict)]
+  return []
 
 
 def generate_ehr_from_manifest(manifest_path: Path,
@@ -41,8 +62,55 @@ def generate_ehr_from_manifest(manifest_path: Path,
 
     Kim-Quan: implement.
     """
-    # Kim-Quan: code synthetic EHR generation here.
-    pass
+    records = _load_manifest_records(manifest_path)
+    if not records:
+      return []
+
+    weights = {
+      "vital_signs": 0.40,
+      "lab_result": 0.25,
+      "medication": 0.20,
+      "note": 0.10,
+      "critical_lab": 0.05,
+    }
+    current_time = datetime.now(timezone.utc)
+    events: list[EHREvent] = []
+
+    for record_index, record in enumerate(records):
+      patient_id = str(record.get("subject_id") or record.get("patient_id") or f"subject-{record_index:04d}")
+      subject_seed = f"{patient_id}:{record.get('session_id', '0')}"
+      rng = random.Random(subject_seed)
+
+      for event_index in range(events_per_subject):
+        event_type = rng.choices(list(weights.keys()), weights=list(weights.values()), k=1)[0]
+        event_time = current_time + timedelta(minutes=rng.randint(-30, 30))
+        encounter_id = f"enc_{patient_id}_{event_index:03d}"
+        source_system = rng.choice(["epic", "cerner"])
+
+        if event_type == "vital_signs":
+          payload = {"hr": rng.randint(60, 110), "spo2": round(rng.uniform(0.92, 0.99), 2), "rr": rng.randint(12, 20)}
+        elif event_type == "lab_result":
+          payload = {"test": "Na", "value": rng.randint(134, 145), "unit": "mEq/L"}
+        elif event_type == "medication":
+          payload = {"drug": "levetiracetam", "dose_mg": 500}
+        elif event_type == "critical_lab":
+          payload = {"test": "lactate", "value": round(rng.uniform(3.5, 6.0), 1), "unit": "mmol/L"}
+        else:
+          payload = {"text": "Routine neuro check, no AED change"}
+
+        events.append(
+          EHREvent(
+            patient_id=patient_id,
+            encounter_id=encounter_id,
+            event_time=_iso_z(event_time),
+            event_type=event_type,
+            source_system=source_system,
+            version=1,
+            payload=payload,
+          )
+        )
+
+    return events
 
 
 def normalize_ehr_payload(raw: dict[str, Any]) -> EHREvent:
@@ -61,8 +129,58 @@ def normalize_ehr_payload(raw: dict[str, Any]) -> EHREvent:
 
     Kim-Quan: implement.
     """
-    # Kim-Quan: code normalisation here.
-    pass
+    patient_id = raw.get("patient_id") or raw.get("PatientID")
+    encounter_id = raw.get("encounter_id") or raw.get("EncounterID")
+    if not patient_id or not encounter_id:
+      raise ValueError("patient_id and encounter_id are required")
+
+    raw_event_type = str(raw.get("event_type") or raw.get("EventType") or "note")
+    event_type = raw_event_type.lower()
+    source_system = str(raw.get("source_system") or raw.get("SourceSystem") or "unknown")
+    version = int(raw.get("version") or raw.get("Version") or 1)
+
+    raw_event_time = raw.get("event_time") or raw.get("EventTime")
+    if isinstance(raw_event_time, datetime):
+      event_time = _iso_z(raw_event_time)
+    elif raw_event_time:
+      event_time_text = str(raw_event_time).strip().replace(" ", "T")
+      if event_time_text.endswith("Z"):
+        event_time_text = event_time_text[:-1] + "+00:00"
+      parsed_event_time = datetime.fromisoformat(event_time_text)
+      if parsed_event_time.tzinfo is None:
+        parsed_event_time = parsed_event_time.replace(tzinfo=timezone.utc)
+      event_time = _iso_z(parsed_event_time)
+    else:
+      event_time = _iso_z(datetime.now(timezone.utc))
+
+    payload = {
+      key: value
+      for key, value in raw.items()
+      if key not in {
+        "patient_id",
+        "PatientID",
+        "encounter_id",
+        "EncounterID",
+        "event_time",
+        "EventTime",
+        "event_type",
+        "EventType",
+        "source_system",
+        "SourceSystem",
+        "version",
+        "Version",
+      }
+    }
+
+    return EHREvent(
+      patient_id=str(patient_id),
+      encounter_id=str(encounter_id),
+      event_time=event_time,
+      event_type=event_type,
+      source_system=source_system,
+      version=version,
+      payload=payload,
+    )
 
 
 def publish_ehr_events(
@@ -77,5 +195,30 @@ def publish_ehr_events(
     Kim-Quan: same shape — ``get_producer``, validate, send, flush. Return
     ``{"published": N, "failed": M, "validation_errors": K}``.
     """
-    # Kim-Quan: code the publish loop here.
-    pass
+    from brainwatch.ingestion.kafka_helpers import get_producer
+
+    producer = get_producer(bootstrap_servers=bootstrap_servers, fallback_path=fallback_path)
+    published = 0
+    failed = 0
+    validation_errors = 0
+
+    for index, event in enumerate(events):
+      if not event.patient_id or not event.encounter_id:
+        validation_errors += 1
+        failed += 1
+        continue
+
+      try:
+        producer.send(topic, event)
+        published += 1
+        if replay_speed > 0 and index < len(events) - 1:
+          time.sleep(1.0 / replay_speed)
+      except Exception:
+        failed += 1
+
+    producer.flush()
+    close = getattr(producer, "close", None)
+    if callable(close):
+      close()
+
+    return {"published": published, "failed": failed, "validation_errors": validation_errors}
