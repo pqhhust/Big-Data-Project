@@ -17,7 +17,60 @@
 # use a shared ReadWriteMany PV backed by hostPath if the cluster supports it.
 # Otherwise mount each lake zone PVC into the spark pod that writes it.
 
-# Dat: replace this stub with 5 PersistentVolumeClaim resources.
 apiVersion: v1
 kind: List
-items: []
+items:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: bronze-pvc
+      namespace: brainwatch
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 20Gi
+
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: silver-pvc
+      namespace: brainwatch
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 20Gi
+
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: gold-pvc
+      namespace: brainwatch
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 10Gi
+
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: checkpoints-pvc
+      namespace: brainwatch
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 5Gi
+
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: cassandra-pvc
+      namespace: brainwatch
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 20Gi
