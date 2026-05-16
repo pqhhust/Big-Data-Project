@@ -1,86 +1,138 @@
 # BrainWatch — Big Data Platform for Real-Time EEG Monitoring
 
-Lambda-architecture pipeline for hospital-scale EEG monitoring with EHR enrichment.
-Stack: Kafka → Spark (batch + Structured Streaming) → Cassandra/MongoDB on Kubernetes.
+> Lambda-architecture big data system for near-real-time EEG anomaly detection with EHR context enrichment.
 
-> ⚡ **Final sprint plan (2 weeks left): [`docs/final-sprint-plan.md`](docs/final-sprint-plan.md).**
-> Architecture: [`docs/architecture.md`](docs/architecture.md) · Lead: Quang-Hung.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![Spark 3.5](https://img.shields.io/badge/spark-3.5-orange)](https://spark.apache.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
----
+## Overview
 
-## 1. Environment setup
+BrainWatch is a 6-week milestone project that implements a full Lambda-architecture pipeline for hospital-scale EEG monitoring. The system ingests multi-site clinical EEG recordings alongside asynchronous EHR updates, performs both batch and streaming analytics via Apache Spark, and generates near-real-time anomaly alerts through a rule-based serving layer.
 
-Python 3.11 is required. Use a venv or your conda env of choice.
+**Data context.** Source metadata is derived from the BDSP clinical EEG corpus (multi-site, multi-service). The implementation operates on a locally staged subset (~few GB) rather than direct AWS S3 reads, enabling reproducible development without cloud dependencies.
+
+## Key Components
+
+| Layer | Technology | Description |
+|---|---|---|
+| **Ingestion** | Python, Kafka | EEG metadata profiling, subset selection, event publishing |
+| **Batch** | PySpark | Bronze → Silver → Gold data lake transformations |
+| **Speed** | Spark Structured Streaming | Watermarked stream joins, stateful aggregations, alert generation |
+| **Serving** | Cassandra / MongoDB | Low-latency alert & patient-state lookup |
+| **Deployment** | Kubernetes | Namespace isolation, ConfigMaps, Spark job templates |
+
+## Repository Structure
+
+```
+Big-Data-Project/
+├── configs/              # Environment and pipeline configuration
+├── docs/                 # Architecture design, checklists, setup guide
+├── infra/
+│   ├── docker/           # Docker Compose (Kafka + Spark local stack)
+│   └── k8s/              # Kubernetes deployment manifests
+├── scripts/              # CLI entry points
+│   ├── download_bdsp_subset.py     # ~100h download manifest builder
+│   ├── replay_to_kafka.py          # Unified EEG + EHR replay simulator
+│   ├── profile_eeg_metadata.py     # Metadata profiling
+│   └── build_local_subset_manifest.py
+├── src/brainwatch/       # Core Python package
+│   ├── config/           #   Settings loader
+│   ├── contracts/        #   Canonical event schemas (EEG, EHR, Feature, Alert)
+│   ├── ingestion/        #   Producers, normalisers, bronze writer, DLQ
+│   ├── processing/       #   Spark batch & streaming pipelines
+│   └── serving/          #   Anomaly classification rules
+├── tests/                # 24 unit tests
+└── artifacts/
+    ├── week1/            # Metadata profile + subset manifest
+    └── week2/            # Download manifest + event replay
+```
+
+## Quick Start
 
 ```bash
-# 1) Create + activate a Python 3.11 environment
+# Setup (Python 3.11 venv or your conda env of choice)
 python3.11 -m venv .venv && source .venv/bin/activate
-# (or: conda create -n brainwatch python=3.11 && conda activate brainwatch)
-
-# 2) Install the package in editable mode (pytest only — no Spark/Kafka)
-cd <path-to-this-repo>
 pip install -e ".[dev]"
 
-# 3) Add Kafka/Spark when you actually need them (optional extras)
-pip install -e ".[dev,kafka]"   # only if you publish to a real Kafka broker
-pip install -e ".[dev,spark]"   # only if you run PySpark locally
-
-# 4) Smoke check
-python -c "from brainwatch.contracts.events import EEGChunkEvent; print('OK')"
-pytest -v
+# Full setup guide: docs/setup-guide.md
 ```
 
-All week-1 tests pass without Docker, Kafka, or Spark — that is intentional.
+### 1. Generate 100h download manifest (5 BDSP sites, short recordings)
 
-## 2. AWS credentials (for downloading BDSP EEG)
-
-The download script reads AWS keys from a CSV file. Default location:
-
-```
-~/credentials/rootkey.csv     # override with --credentials or $BDSP_CREDENTIALS
-```
-
-Format (standard AWS IAM root-key export):
-
-```csv
-Access key ID,Secret access key
-<key>,<secret>
+```bash
+python scripts/download_bdsp_subset.py \
+  --csv-dir ../STELAR-private/pretrain/reve/metadata \
+  --output artifacts/week2/download_manifest.json \
+  --target-hours 100
 ```
 
-> **Never commit this file.** It sits outside the repo on purpose.
-> If you copy it locally, add the path to your local `.gitignore`.
+### 2. Replay events (file fallback — no Kafka needed)
 
-The download script picks the path up via `--credentials` or the `BDSP_CREDENTIALS`
-env var; see [`scripts/download_eeg_ehr.py`](scripts/download_eeg_ehr.py).
+```bash
+python scripts/replay_to_kafka.py \
+  --manifest artifacts/week2/download_manifest.json \
+  --fallback
+```
 
-## 3. Local Kafka stack (optional, only for stream tests)
+### 3. Start local Kafka stack (optional)
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml up -d
-# Kafka UI:   http://localhost:8080
-# Spark UI:   http://localhost:8081
-# Internal :  kafka:9092   |  External (host):  localhost:9094
+# Kafka UI: http://localhost:8080
 ```
 
-## 4. Run a single test
+### 4. Run tests
 
 ```bash
-pytest tests/test_eeg_inventory.py -v
-pytest tests/test_eeg_inventory.py::test_profile_writes_summary -v
+pytest -v   # 24 tests, all pass without Docker/Kafka
 ```
 
-## 5. Branching
+## Week 1 Deliverables
 
-- `main` — protected, integration only. PR + review from Quang-Hung.
-- `Hunng`, `Hùng`, `quankim`, `nguyendinhdat`, `trang` — per-member working branches.
-- Open a PR into `main` once your work-package acceptance criteria pass.
+| Deliverable | Status | Location |
+|---|---|---|
+| Architecture decision (Lambda vs Kappa) | Done | [`docs/architecture.md`](docs/architecture.md) |
+| EEG metadata inventory utility | Done | [`src/brainwatch/ingestion/eeg_inventory.py`](src/brainwatch/ingestion/eeg_inventory.py) |
+| Local subset manifest builder | Done | [`src/brainwatch/ingestion/subset_manifest.py`](src/brainwatch/ingestion/subset_manifest.py) |
+| Canonical event contracts | Done | [`src/brainwatch/contracts/events.py`](src/brainwatch/contracts/events.py) |
+| Spark batch & streaming scaffold | Done | [`src/brainwatch/processing/spark_pipeline.py`](src/brainwatch/processing/spark_pipeline.py) |
+| Anomaly classification rules | Done | [`src/brainwatch/serving/anomaly_rules.py`](src/brainwatch/serving/anomaly_rules.py) |
+| Kubernetes baseline manifests | Done | [`infra/k8s/`](infra/k8s/) |
+| Configuration template | Done | [`configs/project.example.yaml`](configs/project.example.yaml) |
+| Unit tests (5 cases) | Done | [`tests/`](tests/) |
+| Metadata profile artifact | Done | [`artifacts/week1/eeg_metadata_profile.json`](artifacts/week1/eeg_metadata_profile.json) |
+| Subset manifest artifact | Done | [`artifacts/week1/eeg_subset_manifest.json`](artifacts/week1/eeg_subset_manifest.json) |
 
-## 6. Compressed schedule (2 weeks left)
+## Week 2 Deliverables
 
-| Phase                  | Dates                          | Deliverable                                            |
-| ---------------------- | ------------------------------ | ------------------------------------------------------ |
-| **Sprint** (this week) | Fri 2026-05-08 → Thu 2026-05-14 | Code complete + deployed on K8s; tag `v0.3.0-rc1`      |
-| **Report** (next week) | Fri 2026-05-15 → Thu 2026-05-21 | Final report, slides, ≤ 5-min demo video; tag `v1.0.0` |
+| Deliverable | Status | Location |
+|---|---|---|
+| 100h download manifest (1,436 subjects, 5 sites) | Done | [`artifacts/week2/download_manifest.json`](artifacts/week2/download_manifest.json) |
+| EEG event producer (Kafka + file fallback) | Done | [`src/brainwatch/ingestion/eeg_producer.py`](src/brainwatch/ingestion/eeg_producer.py) |
+| Synthetic EHR generator + normaliser | Done | [`src/brainwatch/ingestion/ehr_normalizer.py`](src/brainwatch/ingestion/ehr_normalizer.py) |
+| Kafka helpers + FileProducer fallback | Done | [`src/brainwatch/ingestion/kafka_helpers.py`](src/brainwatch/ingestion/kafka_helpers.py) |
+| Bronze zone writer with dedup | Done | [`src/brainwatch/ingestion/bronze_writer.py`](src/brainwatch/ingestion/bronze_writer.py) |
+| Dead-letter queue | Done | [`src/brainwatch/ingestion/dead_letter.py`](src/brainwatch/ingestion/dead_letter.py) |
+| Structured Streaming: Kafka → Bronze | Done | [`src/brainwatch/processing/bronze_ingest.py`](src/brainwatch/processing/bronze_ingest.py) |
+| Unified replay simulator | Done | [`scripts/replay_to_kafka.py`](scripts/replay_to_kafka.py) |
+| Docker Compose (Kafka + Spark) | Done | [`infra/docker/docker-compose.yml`](infra/docker/docker-compose.yml) |
+| K8s: Kafka StatefulSet + Zookeeper | Done | [`infra/k8s/`](infra/k8s/) |
+| 24 unit tests (all passing) | Done | [`tests/`](tests/) |
 
-Per-member work packages, owners, acceptance criteria, and daily cadence
-are in [`docs/final-sprint-plan.md`](docs/final-sprint-plan.md).
+## Roadmap
+
+| Week | Focus | Status |
+|---|---|---|
+| 1 | Foundation, architecture, project scaffold | **Complete** |
+| 2 | EEG/EHR ingestion layer & Kafka integration | **Complete** |
+| 3 | Batch layer — Bronze/Silver/Gold Spark jobs | Planned |
+| 4 | Speed layer — Structured Streaming & alerts | Planned |
+| 5 | Serving layer, dashboards, hardening | Planned |
+| 6 | End-to-end integration, report, demo | Planned |
+
+## Notes
+
+- PySpark and kafka-python are optional dependencies — all tests pass without them.
+- The detailed internal 6-week execution plan is maintained locally and excluded from version control.
+- See [`docs/setup-guide.md`](docs/setup-guide.md) for full environment setup instructions.

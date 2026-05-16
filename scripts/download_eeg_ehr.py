@@ -28,8 +28,15 @@ import argparse
 import csv
 import json
 import os
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 DEFAULT_CREDS = os.path.expanduser("~/credentials/rootkey.csv")
 
@@ -47,8 +54,17 @@ def load_aws_credentials(path: str | Path) -> dict[str, str]:
     Quang-Hung: implement (5 lines — csv.DictReader, single row, rename keys).
     Never log or print the secret value.
     """
-    # Quang-Hung: read CSV header + first data row, return renamed dict.
-    pass
+    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        row = next(reader, None)
+
+    if not row:
+        raise ValueError("credential CSV is empty")
+
+    return {
+        "aws_access_key_id": row.get("Access key ID", "").strip(),
+        "aws_secret_access_key": row.get("Secret access key", "").strip(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +102,85 @@ def build_manifest(
 
     Trang: implement.  Tip: ``Path(csv_dir).glob("*_meta.csv")``.
     """
-    # Trang: code the filter + cumulative selector here.
-    pass
+    csv_dir = Path(csv_dir)
+    meta_files = sorted(csv_dir.glob("*_meta.csv"))
+    candidates: list[dict[str, Any]] = []
+
+    if meta_files:
+        for meta_file in meta_files:
+            with meta_file.open("r", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    raw_duration = row.get("duration_seconds") or row.get("DurationInSeconds") or row.get("RecordingDuration")
+                    try:
+                        duration = float(raw_duration) if raw_duration else None
+                    except ValueError:
+                        duration = None
+                    if duration is None or duration < min_duration or duration > max_duration:
+                        continue
+
+                    s3_keys_raw = row.get("s3_keys") or row.get("candidate_source_keys") or row.get("s3_key") or ""
+                    if isinstance(s3_keys_raw, str) and s3_keys_raw.strip():
+                        if s3_keys_raw.strip().startswith("["):
+                            try:
+                                s3_keys = json.loads(s3_keys_raw)
+                            except json.JSONDecodeError:
+                                s3_keys = [s3_keys_raw.strip()]
+                        else:
+                            s3_keys = [key.strip() for key in s3_keys_raw.split("|") if key.strip()]
+                    elif isinstance(s3_keys_raw, list):
+                        s3_keys = [str(key).strip() for key in s3_keys_raw if str(key).strip()]
+                    else:
+                        s3_keys = []
+
+                    if not s3_keys:
+                        continue
+
+                    candidates.append(
+                        {
+                            "subject_id": row.get("subject_id") or row.get("BidsFolder") or row.get("subject") or "UNKNOWN",
+                            "session_id": row.get("session_id") or row.get("SessionID") or "0",
+                            "site_id": row.get("site_id") or row.get("SiteID") or row.get("InstituteID") or "UNKNOWN",
+                            "duration_seconds": duration,
+                            "s3_keys": s3_keys,
+                            "local_target_dir": row.get("local_target_dir") or "data/raw/eeg",
+                        }
+                    )
+    else:
+        for edf_path in sorted(csv_dir.rglob("*.edf")):
+            parts = edf_path.parts
+            subject_id = next((part for part in parts if part.startswith("sub-")), edf_path.stem)
+            session_id = next((part.removeprefix("ses-") for part in parts if part.startswith("ses-")), "1")
+            site_id = csv_dir.name if csv_dir.name else "UNKNOWN"
+            candidates.append(
+                {
+                    "subject_id": subject_id,
+                    "session_id": session_id,
+                    "site_id": site_id,
+                    "duration_seconds": 300.0,
+                    "s3_keys": [str(edf_path).replace("\\", "/")],
+                    "local_target_dir": "data/raw/eeg",
+                }
+            )
+
+    selected: list[dict[str, Any]] = []
+    accumulated_seconds = 0.0
+    for record in sorted(candidates, key=lambda item: item["duration_seconds"]):
+        selected.append(record)
+        accumulated_seconds += float(record["duration_seconds"])
+        if accumulated_seconds >= target_hours * 3600.0:
+            break
+
+    sites = {record["site_id"] for record in selected}
+    subjects = {record["subject_id"] for record in selected}
+    return {
+        "target_hours": target_hours,
+        "actual_hours": round(accumulated_seconds / 3600.0, 2),
+        "site_count": len(sites),
+        "subject_count": len(subjects),
+        "record_count": len(selected),
+        "records": selected,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +210,37 @@ def download_subset(
          ``brainwatch.ingestion.dead_letter.DeadLetterQueue``).
       5. respect ``dry_run`` — print intended target paths and return.
     """
-    # Kim-Hung: code the download loop + DLQ on failure.
-    pass
+    try:
+        import boto3
+    except ImportError as exc:
+        raise ImportError("boto3 is required for download_subset") from exc
+
+    download_root.mkdir(parents=True, exist_ok=True)
+    client = boto3.client("s3", **credentials)
+    stats = {"downloaded": 0, "skipped": 0, "failed": 0}
+
+    records = manifest.get("records", [])
+    for record in records:
+        site_id = record.get("site_id", "UNKNOWN")
+        subject_id = record.get("subject_id", "UNKNOWN")
+        for s3_key in record.get("s3_keys") or record.get("candidate_source_keys") or []:
+            filename = Path(str(s3_key)).name
+            target_path = download_root / f"site={site_id}" / subject_id / filename
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if target_path.exists():
+                stats["skipped"] += 1
+                continue
+            if dry_run:
+                print(target_path)
+                stats["skipped"] += 1
+                continue
+            try:
+                client.download_file(bucket, str(s3_key), str(target_path))
+                stats["downloaded"] += 1
+            except Exception:
+                stats["failed"] += 1
+
+    return stats
 
 
 # ---------------------------------------------------------------------------
@@ -137,8 +259,21 @@ def emit_synthetic_ehr(manifest: dict[str, Any], output_path: Path,
     ``brainwatch.ingestion.ehr_normalizer.generate_ehr_from_manifest`` and call
     it from this script. Whichever is cleaner — pick one and document it.
     """
-    # Kim-Quan: code synthetic EHR generation (or call into ehr_normalizer).
-    pass
+    from brainwatch.contracts.events import to_payload
+    from brainwatch.ingestion.ehr_normalizer import generate_ehr_from_manifest
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_manifest_path = output_path.with_suffix(".manifest.json")
+    temp_manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    events = generate_ehr_from_manifest(temp_manifest_path, events_per_subject=events_per_subject)
+    temp_manifest_path.unlink(missing_ok=True)
+
+    with output_path.open("w", encoding="utf-8") as handle:
+        for event in events:
+            handle.write(json.dumps(to_payload(event), default=str))
+            handle.write("\n")
+
+    return len(events)
 
 
 # ---------------------------------------------------------------------------
@@ -171,14 +306,23 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
 
-    # Quang-Hung: orchestrate. Order:
-    #   1. build_manifest(...) → write to args.output (unless dry-run)
-    #   2. emit_synthetic_ehr(...) → JSONL at args.ehr_output
-    #   3. if args.download: load_aws_credentials(args.credentials)
-    #                        → download_subset(...)
-    #   4. print summary stats: subjects, hours, downloaded/failed counts.
-    # Quang-Hung: code the orchestration here.
-    pass
+    manifest = build_manifest(args.csv_dir, args.target_hours, args.min_duration, args.max_duration)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    ehr_count = emit_synthetic_ehr(manifest, args.ehr_output, events_per_subject=args.ehr_events_per_subject)
+
+    download_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
+    if args.download:
+        credentials = load_aws_credentials(args.credentials)
+        download_stats = download_subset(manifest, args.download_root, credentials, dry_run=args.dry_run)
+
+    print(json.dumps({
+        "subjects": manifest["subject_count"],
+        "hours": manifest["actual_hours"],
+        "ehr_events": ehr_count,
+        **download_stats,
+    }, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -1,35 +1,52 @@
-"""Tests for ``brainwatch.ingestion.eeg_producer``.
-
-Owner: **Trang**.  Covers Kim-Quan's manifest → events → publish path.
-"""
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
-
-def _write_manifest(tmp_path: Path, n_records: int = 3) -> Path:
-    """Trang: write a tiny manifest JSON with ``n_records`` records, return
-    the path. Use the field shape produced by Trang's ``build_manifest``:
-    subject_id, session_id, site_id, duration_seconds, s3_keys."""
-    # Trang: code the manifest fixture here.
-    pass
+from brainwatch.ingestion.eeg_producer import manifest_to_events, publish_events
 
 
-def test_manifest_to_events_maps_fields(tmp_path: Path):
-    """Trang: write a 1-record manifest, call manifest_to_events, assert the
-    EEGChunkEvent has the expected patient_id/site_id/window_seconds and the
-    defaults (channel_count=19, sampling_rate_hz=200.0)."""
-    pass
+def _write_manifest(tmp_path: Path) -> Path:
+    manifest = {
+        "manifest_version": "2.0",
+        "summary": {},
+        "records": [
+            {
+                "site_id": "S0001",
+                "subject_id": "sub-S0001AAA",
+                "session_id": "1",
+                "duration_seconds": 600.0,
+                "service_name": "LTM",
+                "s3_keys": ["EEG/bids/S0001/sub-S0001AAA/ses-1/eeg/file.edf"],
+            },
+            {
+                "site_id": "S0002",
+                "subject_id": "sub-S0002BBB",
+                "session_id": "2",
+                "duration_seconds": 300.0,
+                "service_name": "Routine",
+                "s3_keys": ["EEG/bids/S0002/sub-S0002BBB/ses-2/eeg/file.edf"],
+            },
+        ],
+    }
+    p = tmp_path / "manifest.json"
+    p.write_text(json.dumps(manifest))
+    return p
 
 
-def test_publish_events_uses_file_fallback(tmp_path: Path):
-    """Trang: monkey-patch get_producer to return a FileProducer pointing at
-    tmp_path, publish 3 events, assert 3 lines written and stats[``published``] == 3."""
-    pass
+def test_manifest_to_events(tmp_path: Path) -> None:
+    mf = _write_manifest(tmp_path)
+    events = manifest_to_events(mf)
+    assert len(events) == 2
+    assert events[0].patient_id == "sub-S0001AAA"
+    assert events[0].site_id == "S0001"
+    assert events[0].channel_count == 19
 
 
-def test_publish_events_counts_validation_errors(tmp_path: Path):
-    """Trang: build one event with empty session_id; publish; assert
-    stats[``validation_errors``] == 1 and stats[``published``] == 0."""
-    pass
+def test_publish_events_file_fallback(tmp_path: Path) -> None:
+    mf = _write_manifest(tmp_path)
+    events = manifest_to_events(mf)
+    fallback = str(tmp_path / "fallback.jsonl")
+    stats = publish_events(events, fallback_path=fallback)
+    assert stats["sent"] == 2
+    assert stats["errors"] == 0
+    lines = Path(fallback).read_text().strip().split("\n")
+    assert len(lines) == 2

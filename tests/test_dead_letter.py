@@ -1,25 +1,28 @@
-"""Tests for ``brainwatch.ingestion.dead_letter``.
-
-Owner: **Trang**.  Covers Dat's ``DeadLetterQueue``.
-"""
-from __future__ import annotations
-
-import json
 from pathlib import Path
 
-
-def test_route_appends_jsonl_envelope(tmp_path: Path):
-    """Trang: route a payload, assert the daily file contains one record with
-    the keys ``routed_at``, ``reason``, ``original_payload``."""
-    pass
+from brainwatch.ingestion.dead_letter import DeadLetterQueue
 
 
-def test_count_increments(tmp_path: Path):
-    """Trang: route 3 records, assert dlq.count == 3."""
-    pass
+def test_route_writes_to_file(tmp_path: Path) -> None:
+    dlq = DeadLetterQueue(tmp_path / "dlq")
+    dlq.route({"patient_id": "P1", "bad_field": None}, reason="missing session_id")
+    assert dlq.count == 1
+
+    records = dlq.read_all()
+    assert len(records) == 1
+    assert records[0]["reason"] == "missing session_id"
+    assert records[0]["original_payload"]["patient_id"] == "P1"
 
 
-def test_read_all_returns_records_in_order(tmp_path: Path):
-    """Trang: route 5 distinct payloads, call read_all, assert the order of
-    ``original_payload`` values matches the order they were routed in."""
-    pass
+def test_multiple_routes_same_day(tmp_path: Path) -> None:
+    dlq = DeadLetterQueue(tmp_path / "dlq")
+    dlq.route({"id": "1"}, reason="err1")
+    dlq.route({"id": "2"}, reason="err2")
+    assert dlq.count == 2
+    records = dlq.read_all()
+    assert len(records) == 2
+
+
+def test_empty_dlq_returns_empty_list(tmp_path: Path) -> None:
+    dlq = DeadLetterQueue(tmp_path / "empty_dlq")
+    assert dlq.read_all() == []

@@ -19,7 +19,75 @@
 #   - env from configmap brainwatch-config.
 #   - successfulJobsHistoryLimit: 3, failedJobsHistoryLimit: 3.
 
-# Dat: replace this stub with the CronJob spec.
 apiVersion: v1
 kind: List
-items: []
+items:
+  - apiVersion: batch/v1
+    kind: CronJob
+    metadata:
+      name: spark-batch
+      namespace: brainwatch
+    spec:
+      schedule: "0 3 * * *"
+      concurrencyPolicy: Forbid
+      successfulJobsHistoryLimit: 3
+      failedJobsHistoryLimit: 3
+      jobTemplate:
+        spec:
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+                - name: spark-batch
+                  image: bitnami/spark:3.5
+                  # TODO: confirm exact --bronze/--silver/--gold path args with Kim-Quan
+                  # once silver_layer.main() and gold_layer.main() are implemented.
+                  command:
+                    - /opt/bitnami/spark/bin/spark-submit
+                    - --master
+                    - local[*]
+                    - --conf
+                    - spark.sql.shuffle.partitions=8
+                    - --py-files
+                    - /opt/brainwatch/brainwatch.zip
+                    - /opt/brainwatch/run_batch.py
+                    - --bronze
+                    - /data/lake/bronze
+                    - --silver
+                    - /data/lake/silver
+                    - --gold
+                    - /data/lake/gold
+                  envFrom:
+                    - configMapRef:
+                        name: brainwatch-config
+                  resources:
+                    requests:
+                      cpu: "1"
+                      memory: 2Gi
+                    limits:
+                      cpu: "2"
+                      memory: 4Gi
+                  volumeMounts:
+                    - name: bronze
+                      mountPath: /data/lake/bronze
+                      readOnly: true
+                    - name: silver
+                      mountPath: /data/lake/silver
+                    - name: gold
+                      mountPath: /data/lake/gold
+                    - name: checkpoints
+                      mountPath: /data/checkpoints
+              volumes:
+                - name: bronze
+                  persistentVolumeClaim:
+                    claimName: bronze-pvc
+                    readOnly: true
+                - name: silver
+                  persistentVolumeClaim:
+                    claimName: silver-pvc
+                - name: gold
+                  persistentVolumeClaim:
+                    claimName: gold-pvc
+                - name: checkpoints
+                  persistentVolumeClaim:
+                    claimName: checkpoints-pvc

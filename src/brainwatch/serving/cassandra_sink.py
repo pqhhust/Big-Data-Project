@@ -44,8 +44,9 @@ def get_session(contact_points: list[str], port: int = 9042):
       ``cluster = Cluster(contact_points, port=port)``
       ``return cluster.connect()``
     """
-    # Kim-Quan: code the session factory here.
-    pass
+    from cassandra.cluster import Cluster
+    cluster = Cluster(contact_points, port=port)
+    return cluster.connect()
 
 
 def init_keyspace(session: Any) -> None:
@@ -53,8 +54,30 @@ def init_keyspace(session: Any) -> None:
 
     Kim-Quan: execute each ``CREATE ... IF NOT EXISTS`` from the docstring.
     """
-    # Kim-Quan: code the schema bootstrap here.
-    pass
+    session.execute(f"""
+        CREATE KEYSPACE IF NOT EXISTS {KEYSPACE}
+        WITH replication = {{'class': 'SimpleStrategy', 'replication_factor': 1}};
+    """)
+    session.execute(f"""
+        CREATE TABLE IF NOT EXISTS {KEYSPACE}.alerts (
+            patient_id     text,
+            alert_time     timestamp,
+            severity       text,
+            anomaly_score  float,
+            explanation    text,
+            session_id     text,
+            PRIMARY KEY (patient_id, alert_time)
+        ) WITH CLUSTERING ORDER BY (alert_time DESC);
+    """)
+    session.execute(f"""
+        CREATE TABLE IF NOT EXISTS {KEYSPACE}.patient_state (
+            patient_id              text PRIMARY KEY,
+            last_alert_time         timestamp,
+            last_severity           text,
+            signal_quality_score    float,
+            anomaly_score           float
+        );
+    """)
 
 
 def write_alerts(session: Any, alerts: list[dict[str, Any]]) -> int:
@@ -64,8 +87,29 @@ def write_alerts(session: Any, alerts: list[dict[str, Any]]) -> int:
     Kim-Quan: implement using a prepared statement + ``BatchStatement``.
     Returns the number of rows successfully written.
     """
-    # Kim-Quan: code the batch insert here.
-    pass
+    if not alerts:
+        return 0
+
+    from cassandra.query import BatchStatement
+    
+    query = f"""
+        INSERT INTO {KEYSPACE}.alerts 
+        (patient_id, alert_time, severity, anomaly_score, explanation, session_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """
+    prepared = session.prepare(query)
+    batch = BatchStatement()
+    
+    count = 0
+    for a in alerts:
+        batch.add(prepared, (
+            a.get("patient_id"), a.get("alert_time"), a.get("severity"),
+            a.get("anomaly_score"), a.get("explanation"), a.get("session_id")
+        ))
+        count += 1
+        
+    session.execute(batch)
+    return count
 
 
 def upsert_patient_state(session: Any, patient_id: str,
@@ -76,8 +120,15 @@ def upsert_patient_state(session: Any, patient_id: str,
 
     Kim-Quan: ``session.execute("INSERT INTO brainwatch.patient_state ...")``.
     """
-    # Kim-Quan: code the upsert here.
-    pass
+    query = f"""
+        INSERT INTO {KEYSPACE}.patient_state 
+        (patient_id, last_alert_time, last_severity, signal_quality_score, anomaly_score)
+        VALUES (?, ?, ?, ?, ?)
+    """
+    prepared = session.prepare(query)
+    session.execute(prepared, (
+        patient_id, alert_time, severity, signal_quality_score, anomaly_score
+    ))
 
 
 def query_recent_alerts(session: Any, patient_id: str,
@@ -87,5 +138,7 @@ def query_recent_alerts(session: Any, patient_id: str,
     Kim-Quan: ``SELECT ... FROM brainwatch.alerts WHERE patient_id = ?
     LIMIT ?`` — clustering key is alert_time DESC so this is a fast slice.
     """
-    # Kim-Quan: code the query here.
-    pass
+    query = f"SELECT * FROM {KEYSPACE}.alerts WHERE patient_id = ? LIMIT ?"
+    prepared = session.prepare(query)
+    rows = session.execute(prepared, (patient_id, limit))
+    return [dict(row._asdict()) for row in rows]

@@ -176,6 +176,22 @@ path + E2E demo + tests + dashboard** — more responsibility than the original
 
 ### Dat (K8s + deploy) — Fri → Thu
 
+> **Cập nhật tiến độ — 2026-05-13 (Day 6 / Integration Day)**
+>
+> | File | Trạng thái |
+> |------|-----------|
+> | `persistent-volumes.yaml` | ✅ Xong — 5 PVCs, đã push |
+> | `cassandra-statefulset.yaml` | ✅ Xong — headless Service + StatefulSet, đã push |
+> | `spark-streaming-deployment.yaml` | ✅ Xong — Deployment + Spark UI Service, đã push |
+> | `spark-batch-cronjob.yaml` | ⚠️ Placeholder — chờ Kim-Quan xác nhận spark-submit args |
+> | `deploy.sh` | ❌ **Chưa làm — CẦN XONG HÔM NAY** |
+> | `teardown.sh` | ❌ **Chưa làm — CẦN XONG HÔM NAY** |
+>
+> **Việc cần làm ngay hôm nay (trước 21:00):**
+> 1. Viết `deploy.sh` + `teardown.sh`
+> 2. Khi Kim-Quan báo args → cập nhật `spark-batch-cronjob.yaml`
+> 3. Pair với Quang-Hung deploy lên cluster `brainwatch`
+
 **Files you own**
 - `infra/k8s/cassandra-statefulset.yaml`
 - `infra/k8s/persistent-volumes.yaml`
@@ -184,24 +200,24 @@ path + E2E demo + tests + dashboard** — more responsibility than the original
 - `infra/k8s/deploy.sh` / `teardown.sh`
 
 **Tasks**
-1. **PVCs (Day 1).** 5 `PersistentVolumeClaim` resources:
+1. ✅ **PVCs (Day 1).** 5 `PersistentVolumeClaim` resources:
    `bronze 20Gi, silver 20Gi, gold 10Gi, checkpoints 5Gi, cassandra 20Gi`.
    `ReadWriteOnce`, default storage class.
-2. **Cassandra (Day 1–2).** Headless `cassandra-svc` service + 1-replica
+2. ✅ **Cassandra (Day 1–2).** Headless `cassandra-svc` service + 1-replica
    StatefulSet, `cassandra:4.1`, volume claim template, `nodetool status`
    liveness probe.
-3. **Spark workloads (Day 2–4).**
-   - **Streaming** Deployment: `bitnami/spark:3.5`, `spark-submit -m
-     brainwatch.processing.speed_layer ...` with `--packages
+3. ✅ **Spark workloads (Day 2–4).**
+   - ✅ **Streaming** Deployment: `bitnami/spark:3.5`, `spark-submit -m
+     brainwatch.processing.speed_layer ...` với `--packages
      spark-sql-kafka-0-10_2.12:3.5.0,spark-cassandra-connector_2.12:3.5.0`.
      `restartPolicy: Always`.
-   - **Batch** CronJob: schedule `0 3 * * *`, runs Kim-Quan's silver+gold
-     builders (he'll hand you the exact `spark-submit` args on Day 2).
-4. **Deploy script (Day 4–5).** `deploy.sh` applies in dependency order
-   (namespace → configmap → PVCs → kafka → cassandra → spark) and
-   `kubectl rollout status` after each. `teardown.sh` reverse order with
-   double-prompt before deleting PVCs.
-5. **Day 6.** Pair with Quang-Hung on the cluster cutover. Bring your
+   - ⚠️ **Batch** CronJob: placeholder đã có, chờ Kim-Quan xác nhận
+     `spark-submit` args để hoàn thiện.
+4. ❌ **Deploy script (Day 4–5 → DUE TODAY).** `deploy.sh` applies in dependency order
+   (namespace → configmap → PVCs → kafka → cassandra → spark) và
+   `kubectl rollout status` sau mỗi bước. `teardown.sh` reverse order với
+   double-prompt trước khi xóa PVCs.
+5. ❌ **Day 6 (HÔM NAY).** Pair với Quang-Hung cluster cutover. Bring your
    `CODE_PLAN.md` topology diagrams — they're the basis for the report
    deployment chapter you'll write next week.
 

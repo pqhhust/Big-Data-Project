@@ -1,0 +1,5 @@
+{"patient_id":"sub-I0002150000001","session_id":"ses-1","alert_time":"2026-05-09T10:00:00Z","severity":"critical","anomaly_score":0.91,"explanation":"critical lab + sustained abnormal EEG"}
+{"patient_id":"sub-I0002150000002","session_id":"ses-2","alert_time":"2026-05-09T10:01:00Z","severity":"warning","anomaly_score":0.72,"explanation":"elevated anomaly score"}
+{"patient_id":"sub-I0002150000001","session_id":"ses-1","alert_time":"2026-05-09T10:02:00Z","severity":"critical","anomaly_score":0.88,"explanation":"repeat critical signal"}
+{"patient_id":"sub-I0002150000003","session_id":"ses-1","alert_time":"2026-05-09T10:03:00Z","severity":"advisory","anomaly_score":0.61,"explanation":"monitor closely"}
+{"patient_id":"sub-I0002150000004","session_id":"ses-4","alert_time":"2026-05-09T10:04:00Z","severity":"normal","anomaly_score":0.22,"explanation":"baseline"}

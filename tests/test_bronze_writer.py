@@ -1,43 +1,53 @@
-"""Tests for ``brainwatch.ingestion.bronze_writer``.
-
-Owner: **Trang**.  Covers Kim-Hung's ``BronzeWriter``.
-"""
-from __future__ import annotations
-
 from pathlib import Path
 
-# Trang: uncomment once Kim-Hung lands the module:
-#   from brainwatch.ingestion.bronze_writer import BronzeWriter
-#   from brainwatch.contracts.events import EEGChunkEvent, EHREvent
+from brainwatch.contracts.events import EEGChunkEvent, EHREvent
+from brainwatch.ingestion.bronze_writer import BronzeWriter
 
 
-def _make_eeg_event(**overrides):
-    """Trang: small helper that returns a valid EEGChunkEvent with sane defaults
-    so each test can override one field at a time."""
-    # Trang: code the helper here.
-    pass
+def _make_eeg(pid: str = "P1", sid: str = "S1") -> EEGChunkEvent:
+    return EEGChunkEvent(
+        patient_id=pid, session_id=sid, event_time="2026-01-01T00:00:00",
+        site_id="S0001", channel_count=19, sampling_rate_hz=200.0,
+        window_seconds=300.0, source_uri="s3://bucket/key.edf",
+    )
 
 
-def test_writes_eeg_event_to_partitioned_path(tmp_path: Path):
-    """Trang: write one valid EEG event, assert
-    ``<bronze>/eeg/site=<site>/date=YYYY-MM-DD/eeg_bronze_*.jsonl`` exists."""
-    pass
+def _make_ehr(pid: str = "P1") -> EHREvent:
+    return EHREvent(
+        patient_id=pid, encounter_id="E1", event_time="2026-01-01T00:00:00",
+        event_type="admission", source_system="test", version=1, payload={},
+    )
 
 
-def test_dedup_ignores_duplicate_events(tmp_path: Path):
-    """Trang: write the same event twice. Stats should be
-    ``{written: 1, duplicates: 1, errors: 0}``."""
-    pass
+def test_write_eeg_creates_partitioned_file(tmp_path: Path) -> None:
+    writer = BronzeWriter(tmp_path / "bronze")
+    assert writer.write_eeg(_make_eeg())
+    assert writer.stats["written"] == 1
+    # Check partitioned path exists
+    eeg_dir = tmp_path / "bronze" / "eeg"
+    assert eeg_dir.exists()
 
 
-def test_invalid_event_routed_to_dlq(tmp_path: Path):
-    """Trang: write a dict that's missing ``site_id`` via write_raw, assert
-    stats has ``errors: 1`` and the DLQ file contains one record with
-    ``reason`` mentioning the missing field."""
-    pass
+def test_dedup_prevents_second_write(tmp_path: Path) -> None:
+    writer = BronzeWriter(tmp_path / "bronze")
+    assert writer.write_eeg(_make_eeg())
+    assert not writer.write_eeg(_make_eeg())  # same event = duplicate
+    assert writer.stats["written"] == 1
+    assert writer.stats["duplicates"] == 1
 
 
-def test_ehr_event_partitions_by_date_only(tmp_path: Path):
-    """Trang: EHR has no ``site_id`` partition. Assert path is
-    ``<bronze>/ehr/date=YYYY-MM-DD/ehr_bronze_*.jsonl``."""
-    pass
+def test_invalid_eeg_routed_to_dlq(tmp_path: Path) -> None:
+    writer = BronzeWriter(tmp_path / "bronze")
+    bad = EEGChunkEvent(
+        patient_id="", session_id="S1", event_time="2026-01-01",
+        site_id="S0001", channel_count=19, sampling_rate_hz=200.0,
+        window_seconds=300.0, source_uri="",
+    )
+    assert not writer.write_eeg(bad)
+    assert writer.stats["errors"] == 1
+
+
+def test_write_ehr(tmp_path: Path) -> None:
+    writer = BronzeWriter(tmp_path / "bronze")
+    assert writer.write_ehr(_make_ehr())
+    assert writer.stats["written"] == 1
