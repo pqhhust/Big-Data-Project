@@ -1,46 +1,44 @@
 """EEG metadata-to-event publisher.
 
-Owner: **Kim-Quan**.
-Depends on: Kim-Hung's ``kafka_helpers.get_producer``, and the
-canonical ``EEGChunkEvent`` schema in ``brainwatch.contracts.events``.
-
-Reads a download manifest produced by ``scripts/download_eeg_ehr.py`` (Trang)
-and publishes ``EEGChunkEvent`` messages to the ``eeg.raw`` Kafka topic.
+Reads a download manifest (or metadata CSVs) and publishes EEGChunkEvent
+messages to the ``eeg.raw`` Kafka topic.  Supports:
+  - **batch** mode: publish all events as fast as possible
+  - **replay** mode: sleep proportionally to simulate real-time arrival
 """
 from __future__ import annotations
 
+import argparse
+import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from brainwatch.contracts.events import EEGChunkEvent
+from brainwatch.contracts.events import EEGChunkEvent, to_payload, validate_required_fields
+from brainwatch.ingestion.kafka_helpers import get_producer
 
 EEG_REQUIRED = {"patient_id", "session_id", "event_time", "site_id"}
 
 
 def manifest_to_events(manifest_path: Path) -> list[EEGChunkEvent]:
-    """Read the JSON manifest and turn each record into an ``EEGChunkEvent``.
+    """Convert a download manifest into a list of EEGChunkEvents."""
+    with manifest_path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
 
-    Manifest record shape (see Trang's ``build_manifest`` in
-    ``scripts/download_eeg_ehr.py``)::
-
-        {"subject_id": ..., "session_id": ..., "site_id": ...,
-         "duration_seconds": ..., "s3_keys": ["..."]}
-
-    Field mapping:
-      - ``patient_id``        ← ``subject_id``
-      - ``session_id``        ← ``session_id``
-      - ``event_time``        ← ``datetime.now(tz=timezone.utc).isoformat()``
-                                (real arrival time; we don't have true timestamps)
-      - ``site_id``           ← ``site_id``
-      - ``channel_count``     ← 19 (matches BDSP 10-20 montage)
-      - ``sampling_rate_hz``  ← 200.0 (matches the parent pretraining pipeline)
-      - ``window_seconds``    ← ``duration_seconds``
-      - ``source_uri``        ← ``s3_keys[0]``
-
-    Kim-Quan: implement.
-    """
-    # Kim-Quan: code manifest → events here.
-    pass
+    events: list[EEGChunkEvent] = []
+    for rec in data.get("records", []):
+        ev = EEGChunkEvent(
+            patient_id=rec.get("subject_id", ""),
+            session_id=rec.get("session_id", ""),
+            event_time=datetime.now(tz=timezone.utc).isoformat(),
+            site_id=rec.get("site_id", ""),
+            channel_count=19,
+            sampling_rate_hz=200.0,
+            window_seconds=rec.get("duration_seconds", 0.0),
+            source_uri=rec.get("s3_keys", [""])[0],
+        )
+        events.append(ev)
+    return events
 
 
 def publish_events(
@@ -50,24 +48,55 @@ def publish_events(
     replay_speed: float = 0.0,
     fallback_path: str | None = None,
 ) -> dict[str, Any]:
-    """Publish events to Kafka (or the file fallback). Returns stats dict
-    ``{"published": N, "failed": M, "validation_errors": K}``.
+    """Publish events to Kafka (or file fallback). Returns summary stats."""
+    producer = get_producer(bootstrap_servers, fallback_path=fallback_path)
+    sent, errors = 0, 0
 
-    ``replay_speed``:
-      - ``0`` → batch mode, no sleep between events.
-      - ``N > 0`` → simulate Nx realtime by sleeping
-        ``window_seconds / replay_speed`` between events.
+    for ev in events:
+        payload = to_payload(ev)
+        missing = validate_required_fields(payload, EEG_REQUIRED)
+        if missing:
+            errors += 1
+            continue
+        producer.send(topic, value=ev)
+        sent += 1
+        if replay_speed > 0:
+            time.sleep(ev.window_seconds / replay_speed)
 
-    Kim-Quan: implement.
-      1. ``producer = get_producer(bootstrap_servers, fallback_path)``
-      2. for each event:
-         - ``validate_required_fields(asdict(event), EEG_REQUIRED)``
-           → bump ``validation_errors`` and ``continue`` if missing.
-         - ``producer.send(topic, event)`` inside try/except → bump ``published``
-           or ``failed``.
-         - sleep if ``replay_speed > 0``.
-      3. ``producer.flush(); producer.close()``
-      4. return stats.
-    """
-    # Kim-Quan: code the publish loop here.
-    pass
+    producer.flush()
+    producer.close()
+    return {"sent": sent, "errors": errors, "total": len(events)}
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Publish EEG events to Kafka.")
+    p.add_argument("--manifest", required=True, type=Path, help="Download manifest JSON")
+    p.add_argument("--topic", default="eeg.raw")
+    p.add_argument("--bootstrap-servers", default="localhost:9092")
+    p.add_argument("--replay-speed", type=float, default=0.0,
+                    help="Replay speedup factor (0 = batch, 10 = 10x realtime)")
+    p.add_argument("--fallback-path", default=None,
+                    help="File path for Kafka-unavailable fallback")
+    return p
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    events = manifest_to_events(args.manifest)
+    print(f"Loaded {len(events)} EEG events from {args.manifest}")
+    stats = publish_events(
+        events,
+        topic=args.topic,
+        bootstrap_servers=args.bootstrap_servers,
+        replay_speed=args.replay_speed,
+        fallback_path=args.fallback_path,
+    )
+    print(json.dumps(stats, indent=2))
+
+
+if __name__ == "__main__":
+    main()

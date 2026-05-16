@@ -1,17 +1,12 @@
-"""Kafka connection helpers and serialisation utilities.
-
-Owner: **Kim-Hung**.
-Consumed by: ``eeg_producer.py``, ``ehr_normalizer.py`` (Kim-Quan), and
-``scripts/replay_to_kafka.py`` (Quang-Hung).
-
-Hard contract: every public function in this file must work whether or not
-``kafka-python`` is installed. The ``FileProducer`` fallback is what keeps the
-test suite green on a fresh clone.
-"""
+"""Kafka connection helpers and serialisation utilities."""
 from __future__ import annotations
 
+import json
+import logging
+from dataclasses import asdict
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Serialisation
@@ -19,15 +14,11 @@ from typing import Any
 
 def event_to_bytes(event: Any) -> bytes:
     """Serialise a dataclass event (or dict) to UTF-8 JSON bytes."""
-    import json
-    from dataclasses import is_dataclass, asdict
-    payload = asdict(event) if is_dataclass(event) else event
+    payload = asdict(event) if hasattr(event, "__dataclass_fields__") else event
     return json.dumps(payload, default=str).encode("utf-8")
 
 
 def bytes_to_dict(raw: bytes) -> dict[str, Any]:
-    """Inverse of :func:`event_to_bytes`."""
-    import json
     return json.loads(raw.decode("utf-8"))
 
 
@@ -36,29 +27,34 @@ def bytes_to_dict(raw: bytes) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def create_producer(bootstrap_servers: str = "localhost:9092", **kwargs: Any):
-    """Return a real ``KafkaProducer``."""
-    from kafka import KafkaProducer
+    """Return a KafkaProducer; raises ImportError if kafka-python is absent."""
+    from kafka import KafkaProducer  # type: ignore[import-untyped]
+
     return KafkaProducer(
         bootstrap_servers=bootstrap_servers,
+        value_serializer=event_to_bytes,
         acks="all",
         retries=3,
-        value_serializer=event_to_bytes,
-        **kwargs
+        **kwargs,
     )
 
 
-def create_consumer(topic: str, bootstrap_servers: str = "localhost:9092",
-                    group_id: str = "brainwatch", **kwargs: Any):
-    """Return a real ``KafkaConsumer``."""
-    from kafka import KafkaConsumer
+def create_consumer(
+    topic: str,
+    bootstrap_servers: str = "localhost:9092",
+    group_id: str = "brainwatch",
+    **kwargs: Any,
+):
+    from kafka import KafkaConsumer  # type: ignore[import-untyped]
+
     return KafkaConsumer(
         topic,
         bootstrap_servers=bootstrap_servers,
         group_id=group_id,
+        value_deserializer=bytes_to_dict,
         auto_offset_reset="earliest",
         enable_auto_commit=True,
-        value_deserializer=bytes_to_dict,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -70,17 +66,12 @@ class FileProducer:
     """Drop-in replacement that appends JSON-lines to a local file."""
 
     def __init__(self, output_path: str) -> None:
-        import os
-        self.output_path = output_path
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        self._path = output_path
 
     def send(self, topic: str, value: Any, **_kwargs: Any) -> None:
-        import json
-        from dataclasses import is_dataclass, asdict
-        payload = asdict(value) if is_dataclass(value) else value
-        record = {"topic": topic, "value": payload}
-        with open(self.output_path, "a") as f:
-            f.write(json.dumps(record, default=str) + "\n")
+        payload = asdict(value) if hasattr(value, "__dataclass_fields__") else value
+        with open(self._path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"topic": topic, "value": payload}, default=str) + "\n")
 
     def flush(self) -> None:
         pass
@@ -89,13 +80,15 @@ class FileProducer:
         pass
 
 
-def get_producer(bootstrap_servers: str = "localhost:9092",
-                 fallback_path: str | None = None, **kwargs: Any):
-    """Try real Kafka; fall back to :class:`FileProducer` on any failure."""
+def get_producer(
+    bootstrap_servers: str = "localhost:9092",
+    fallback_path: str | None = None,
+    **kwargs: Any,
+):
+    """Try real Kafka; fall back to FileProducer if unavailable."""
     try:
-        return create_producer(bootstrap_servers=bootstrap_servers, **kwargs)
-    except Exception as e:
-        import logging
-        logging.warning(f"Kafka unavailable, falling back to FileProducer: {e}")
+        return create_producer(bootstrap_servers, **kwargs)
+    except Exception:
         path = fallback_path or "artifacts/week2/kafka_fallback.jsonl"
+        logger.warning("Kafka unavailable — writing to %s", path)
         return FileProducer(path)
