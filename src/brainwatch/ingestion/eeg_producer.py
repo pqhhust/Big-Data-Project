@@ -9,38 +9,37 @@ and publishes ``EEGChunkEvent`` messages to the ``eeg.raw`` Kafka topic.
 """
 from __future__ import annotations
 
+import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from brainwatch.contracts.events import EEGChunkEvent
+from brainwatch.ingestion.kafka_helpers import get_producer
 
 EEG_REQUIRED = {"patient_id", "session_id", "event_time", "site_id"}
 
 
 def manifest_to_events(manifest_path: Path) -> list[EEGChunkEvent]:
-    """Read the JSON manifest and turn each record into an ``EEGChunkEvent``.
+    """Read the JSON manifest and turn each record into an ``EEGChunkEvent``."""
+    with manifest_path.open() as f:
+        manifest = json.load(f)
 
-    Manifest record shape (see Trang's ``build_manifest`` in
-    ``scripts/download_eeg_ehr.py``)::
-
-        {"subject_id": ..., "session_id": ..., "site_id": ...,
-         "duration_seconds": ..., "s3_keys": ["..."]}
-
-    Field mapping:
-      - ``patient_id``        ← ``subject_id``
-      - ``session_id``        ← ``session_id``
-      - ``event_time``        ← ``datetime.now(tz=timezone.utc).isoformat()``
-                                (real arrival time; we don't have true timestamps)
-      - ``site_id``           ← ``site_id``
-      - ``channel_count``     ← 19 (matches BDSP 10-20 montage)
-      - ``sampling_rate_hz``  ← 200.0 (matches the parent pretraining pipeline)
-      - ``window_seconds``    ← ``duration_seconds``
-      - ``source_uri``        ← ``s3_keys[0]``
-
-    Kim-Quan: implement.
-    """
-    # Kim-Quan: code manifest → events here.
-    pass
+    events = []
+    for record in manifest.get("records", []):
+        event = EEGChunkEvent(
+            patient_id=record["subject_id"],
+            session_id=record["session_id"],
+            event_time=datetime.now(timezone.utc).isoformat(),
+            site_id=record["site_id"],
+            channel_count=19,
+            sampling_rate_hz=200.0,
+            window_seconds=record["duration_seconds"],
+            source_uri=record["s3_keys"][0] if record["s3_keys"] else ""
+        )
+        events.append(event)
+    return events
 
 
 def publish_events(
@@ -50,24 +49,29 @@ def publish_events(
     replay_speed: float = 0.0,
     fallback_path: str | None = None,
 ) -> dict[str, Any]:
-    """Publish events to Kafka (or the file fallback). Returns stats dict
-    ``{"published": N, "failed": M, "validation_errors": K}``.
+    """Publish events to Kafka (or the file fallback). Returns stats dict."""
+    from dataclasses import asdict
+    producer = get_producer(bootstrap_servers, fallback_path)
 
-    ``replay_speed``:
-      - ``0`` → batch mode, no sleep between events.
-      - ``N > 0`` → simulate Nx realtime by sleeping
-        ``window_seconds / replay_speed`` between events.
+    stats = {"published": 0, "failed": 0, "validation_errors": 0}
 
-    Kim-Quan: implement.
-      1. ``producer = get_producer(bootstrap_servers, fallback_path)``
-      2. for each event:
-         - ``validate_required_fields(asdict(event), EEG_REQUIRED)``
-           → bump ``validation_errors`` and ``continue`` if missing.
-         - ``producer.send(topic, event)`` inside try/except → bump ``published``
-           or ``failed``.
-         - sleep if ``replay_speed > 0``.
-      3. ``producer.flush(); producer.close()``
-      4. return stats.
-    """
-    # Kim-Quan: code the publish loop here.
-    pass
+    for event in events:
+        payload = asdict(event)
+        missing = [f for f in EEG_REQUIRED if payload.get(f) in (None, "")]
+        if missing:
+            stats["validation_errors"] += 1
+            continue
+
+        try:
+            producer.send(topic, value=payload)
+            stats["published"] += 1
+
+            if replay_speed > 0:
+                sleep_time = event.window_seconds / replay_speed
+                time.sleep(sleep_time)
+        except Exception:
+            stats["failed"] += 1
+
+    producer.flush()
+    producer.close()
+    return stats

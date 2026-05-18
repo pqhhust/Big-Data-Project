@@ -1,4 +1,4 @@
-"""Spark Structured Streaming consumer: Kafka → Bronze zone.
+"""Spark Structured Streaming consumer: Kafka -> Bronze zone.
 
 Owner: **Quang-Hung** (lead).
 Depends on: ``brainwatch.contracts.events`` schemas and pyspark 3.5.
@@ -13,24 +13,43 @@ from typing import Any
 
 
 def _eeg_schema():
-    """Quang-Hung: build the StructType matching ``EEGChunkEvent``.
+    """Build the StructType matching ``EEGChunkEvent``.
 
     Required columns: patient_id, session_id, event_time (Timestamp), site_id.
     Optional: channel_count, sampling_rate_hz, window_seconds, source_uri.
     """
-    # Quang-Hung: import pyspark types and build the schema here.
-    pass
+    from pyspark.sql.types import (
+        DoubleType, IntegerType, StringType, StructField, StructType, TimestampType
+    )
+    return StructType([
+        StructField("patient_id", StringType(), False),
+        StructField("session_id", StringType(), False),
+        StructField("event_time", TimestampType(), False),
+        StructField("site_id", StringType(), False),
+        StructField("channel_count", IntegerType(), True),
+        StructField("sampling_rate_hz", DoubleType(), True),
+        StructField("window_seconds", DoubleType(), True),
+        StructField("source_uri", StringType(), True)
+    ])
 
 
 def _ehr_schema():
-    """Quang-Hung: same idea for ``EHREvent``.
+    """Same idea for ``EHREvent``.
     Required: patient_id, encounter_id, event_time, event_type.
     Optional: source_system, version.
-    (We deliberately don't model ``payload`` in the schema — leave it as
-    a JSON string column for now; flatten in the Silver layer in Week 3.)
     """
-    # Quang-Hung: build the EHR schema here.
-    pass
+    from pyspark.sql.types import (
+        IntegerType, StringType, StructField, StructType, TimestampType
+    )
+    return StructType([
+        StructField("patient_id", StringType(), False),
+        StructField("encounter_id", StringType(), False),
+        StructField("event_time", TimestampType(), False),
+        StructField("event_type", StringType(), False),
+        StructField("source_system", StringType(), True),
+        StructField("version", IntegerType(), True),
+        StructField("payload", StringType(), True)
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -45,25 +64,76 @@ def build_eeg_bronze_query(
     checkpoint_path: str,
     dead_letter_path: str | None = None,
 ):
-    """Structured Streaming: Kafka ``eeg.raw`` → Bronze Parquet.
+    """Structured Streaming: Kafka ``eeg.raw`` -> Bronze Parquet."""
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import TimestampType
 
-    Quang-Hung: implement.
-      1. ``spark.readStream.format("kafka")`` with subscribe + earliest offsets,
-         ``failOnDataLoss=false`` (we tolerate retention).
-      2. parse ``value`` with ``from_json`` against ``_eeg_schema()``.
-      3. keep ``kafka_ts``, ``kafka_partition``, ``kafka_offset`` for lineage.
-      4. valid rows = ``patient_id IS NOT NULL AND session_id IS NOT NULL``.
-      5. add ``ingestion_time = current_timestamp()`` and
-         ``ingestion_date = to_date(ingestion_time)``.
-      6. write Parquet partitioned by ``site_id, ingestion_date``,
-         checkpoint at ``{checkpoint_path}/eeg_bronze``,
-         ``processingTime="30 seconds"``.
-      7. if ``dead_letter_path``: build a parallel writeStream of the invalid
-         rows as JSON to ``{dead_letter_path}/eeg``.
-      8. return ``(query, invalid_query_or_None)``.
-    """
-    # Quang-Hung: code the EEG bronze query here.
-    pass
+    # 1. Read from Kafka
+    df = (spark.readStream
+          .format("kafka")
+          .option("kafka.bootstrap.servers", kafka_servers)
+          .option("subscribe", eeg_topic)
+          .option("startingOffsets", "earliest")
+          .option("failOnDataLoss", False)
+          .load())
+
+    # 2. Parse value column
+    eeg_schema = _eeg_schema()
+    parsed = df.select(
+        F.from_json(df.value.cast("string"), eeg_schema).alias("eeg"),
+        df.timestamp.alias("kafka_ts"),
+        df.partition,
+        df.offset
+    )
+
+    # 3. Expand EEG fields
+    expanded = parsed.select(
+        parsed.eeg["patient_id"],
+        parsed.eeg["session_id"],
+        parsed.eeg["event_time"].cast(TimestampType()).alias("event_time"),
+        parsed.eeg["site_id"],
+        parsed.eeg["channel_count"],
+        parsed.eeg["sampling_rate_hz"],
+        parsed.eeg["window_seconds"],
+        parsed.eeg["source_uri"],
+        parsed.kafka_ts,
+        parsed.partition.alias("kafka_partition"),
+        parsed.offset.alias("kafka_offset"),
+        F.current_timestamp().alias("ingestion_time"),
+        F.to_date(F.current_timestamp()).alias("ingestion_date")
+    )
+
+    # 4. Filter valid vs invalid
+    valid_df = expanded.filter(
+        (expanded.patient_id.isNotNull()) & (expanded.session_id.isNotNull())
+    )
+    invalid_df = expanded.filter(
+        (expanded.patient_id.isNull()) | (expanded.session_id.isNull())
+    )
+
+    # 5. Write valid to Parquet
+    eeg_query = (valid_df.writeStream
+                 .format("parquet")
+                 .option("path", f"{bronze_path}/eeg")
+                 .option("checkpointLocation", f"{checkpoint_path}/eeg_bronze")
+                 .option("pathPartitionColumnName", "site_id")
+                 .trigger(processingTime="30 seconds")
+                 .start())
+
+    # 6. Write invalid to DLQ if path provided
+    invalid_query = None
+    if dead_letter_path:
+        invalid_json = invalid_df.select(
+            F.to_json(F.struct("*")).alias("json")
+        )
+        invalid_query = (invalid_json.writeStream
+                        .format("json")
+                        .option("path", f"{dead_letter_path}/eeg")
+                        .option("checkpointLocation", f"{checkpoint_path}/eeg_dlq")
+                        .trigger(processingTime="30 seconds")
+                        .start())
+
+    return eeg_query, invalid_query
 
 
 def build_ehr_bronze_query(
@@ -73,15 +143,57 @@ def build_ehr_bronze_query(
     bronze_path: str,
     checkpoint_path: str,
 ):
-    """Structured Streaming: Kafka ``ehr.updates`` → Bronze Parquet.
+    """Structured Streaming: Kafka ``ehr.updates`` -> Bronze Parquet."""
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import TimestampType
 
-    Quang-Hung: implement. Same shape as the EEG query, but:
-      - watermark on ``event_time`` with ``"30 minutes"`` tolerance.
-      - partition by ``ingestion_date`` only (no site_id on EHR).
-      - no DLQ branch — EHR validation is lighter (Week 2).
-    """
-    # Quang-Hung: code the EHR bronze query here.
-    pass
+    # 1. Read from Kafka
+    df = (spark.readStream
+          .format("kafka")
+          .option("kafka.bootstrap.servers", kafka_servers)
+          .option("subscribe", ehr_topic)
+          .option("startingOffsets", "earliest")
+          .option("failOnDataLoss", False)
+          .load())
+
+    # 2. Parse value column
+    ehr_schema = _ehr_schema()
+    parsed = df.select(
+        F.from_json(df.value.cast("string"), ehr_schema).alias("ehr"),
+        df.timestamp.alias("kafka_ts")
+    )
+
+    # 3. Expand EHR fields
+    expanded = parsed.select(
+        parsed.ehr["patient_id"],
+        parsed.ehr["encounter_id"],
+        parsed.ehr["event_time"].cast(TimestampType()).alias("event_time"),
+        parsed.ehr["event_type"],
+        parsed.ehr["source_system"],
+        parsed.ehr["version"],
+        parsed.ehr["payload"],
+        parsed.kafka_ts.alias("kafka_partition"),
+        F.current_timestamp().alias("ingestion_time"),
+        F.to_date(F.current_timestamp()).alias("ingestion_date")
+    )
+
+    # 4. Apply watermark for late data
+    watermark_df = expanded.withWatermark("event_time", "30 minutes")
+
+    # 5. Filter valid
+    valid_df = watermark_df.filter(
+        (valid_df.patient_id.isNotNull()) & (valid_df.encounter_id.isNotNull())
+    )
+
+    # 6. Write to Parquet
+    ehr_query = (valid_df.writeStream
+                 .format("parquet")
+                 .option("path", f"{bronze_path}/ehr")
+                 .option("checkpointLocation", f"{checkpoint_path}/ehr_bronze")
+                 .trigger(processingTime="30 seconds")
+                 .start())
+
+    return ehr_query
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +209,19 @@ def start_bronze_ingestion(
     checkpoint_path: str = "data/checkpoints",
     dead_letter_path: str = "data/lake/dead_letter",
 ):
-    """Wire up both EEG and EHR bronze ingestion streams and ``.start()`` each.
+    """Wire up both EEG and EHR bronze ingestion streams and ``.start()`` each."""
+    # EEG stream
+    eeg_query, eeg_dlq_query = build_eeg_bronze_query(
+        spark, kafka_servers, eeg_topic, bronze_path, checkpoint_path, dead_letter_path
+    )
+    print(f"EEG bronze stream started -> {bronze_path}/eeg")
+    if eeg_dlq_query:
+        print(f"EEG DLQ stream started -> {dead_letter_path}/eeg")
 
-    Quang-Hung: implement.
-      - call build_eeg_bronze_query(...) → (eeg_q, eeg_dlq_q)
-      - call build_ehr_bronze_query(...) → ehr_q
-      - .start() each, return list of StreamingQuery objects.
-      - print a one-line summary so the operator knows it's alive.
-    """
-    # Quang-Hung: code the start_bronze_ingestion entry point here.
-    pass
+    # EHR stream
+    ehr_query = build_ehr_bronze_query(
+        spark, kafka_servers, ehr_topic, bronze_path, checkpoint_path
+    )
+    print(f"EHR bronze stream started -> {bronze_path}/ehr")
+
+    return [eeg_query, ehr_query] + ([eeg_dlq_query] if eeg_dlq_query else [])

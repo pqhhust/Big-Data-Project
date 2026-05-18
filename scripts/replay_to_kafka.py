@@ -17,13 +17,11 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
-# Quang-Hung: once Kim-Quan's modules exist, import:
-#   from brainwatch.ingestion.eeg_producer import manifest_to_events, publish_events
-#   from brainwatch.ingestion.ehr_normalizer import (
-#       generate_ehr_from_manifest, publish_ehr_events,
-#   )
+from brainwatch.ingestion.eeg_producer import manifest_to_events, publish_events
+from brainwatch.ingestion.ehr_normalizer import generate_ehr_from_manifest, publish_ehr_events
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,15 +42,40 @@ def main() -> None:
     args = build_parser().parse_args()
     fallback = "artifacts/week2/kafka_fallback.jsonl" if args.fallback else None
 
-    # Quang-Hung: orchestrate.
-    #   1. eeg_events = manifest_to_events(args.manifest)
-    #   2. eeg_stats  = publish_events(eeg_events, topic=args.eeg_topic, ...)
-    #   3. ehr_events = generate_ehr_from_manifest(args.manifest,
-    #                                               args.ehr_events_per_subject)
-    #   4. ehr_stats  = publish_ehr_events(ehr_events, topic=args.ehr_topic, ...)
-    #   5. print a single JSON summary line so it's parseable in CI.
-    # Quang-Hung: code the orchestration here.
-    pass
+    # 1. EEG events from manifest
+    eeg_events = manifest_to_events(args.manifest)
+    print(f"Generated {len(eeg_events)} EEG events from manifest")
+    eeg_stats = publish_events(
+        eeg_events,
+        topic=args.eeg_topic,
+        bootstrap_servers=args.bootstrap_servers,
+        replay_speed=args.replay_speed,
+        fallback_path=fallback
+    )
+    print(f"EEG stats: {eeg_stats}")
+
+    # 2. Synthetic EHR events
+    ehr_events = generate_ehr_from_manifest(
+        args.manifest,
+        events_per_subject=args.ehr_events_per_subject
+    )
+    print(f"Generated {len(ehr_events)} EHR events")
+    ehr_stats = publish_ehr_events(
+        ehr_events,
+        topic=args.ehr_topic,
+        bootstrap_servers=args.bootstrap_servers,
+        replay_speed=args.replay_speed,
+        fallback_path=fallback
+    )
+    print(f"EHR stats: {ehr_stats}")
+
+    # 3. JSON summary
+    summary = {
+        "eeg": eeg_stats,
+        "ehr": ehr_stats,
+        "fallback_file": fallback
+    }
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

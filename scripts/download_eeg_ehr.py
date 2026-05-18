@@ -27,11 +27,17 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from brainwatch.ingestion.dead_letter import DeadLetterQueue
+from brainwatch.ingestion.ehr_normalizer import generate_ehr_from_manifest
+
 DEFAULT_CREDS = os.path.expanduser("~/credentials/rootkey.csv")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -44,11 +50,15 @@ def load_aws_credentials(path: str | Path) -> dict[str, str]:
     Returns ``{"aws_access_key_id": ..., "aws_secret_access_key": ...}`` so it
     can be unpacked straight into ``boto3.client("s3", **creds)``.
 
-    Quang-Hung: implement (5 lines — csv.DictReader, single row, rename keys).
     Never log or print the secret value.
     """
-    # Quang-Hung: read CSV header + first data row, return renamed dict.
-    pass
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        row = next(reader)
+        return {
+            "aws_access_key_id": row["Access key ID"],
+            "aws_secret_access_key": row["Secret access key"]
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +78,7 @@ def build_manifest(
       - keep rows whose ``duration_seconds`` is between ``min_duration`` and
         ``max_duration``
       - prefer shorter recordings first (we want breadth, not whales)
-      - stop once cumulative duration ≥ target_hours * 3600
+      - stop once cumulative duration >= target_hours * 3600
 
     Returns a dict shaped like::
 
@@ -83,11 +93,50 @@ def build_manifest(
             ...
           ]
         }
-
-    Trang: implement.  Tip: ``Path(csv_dir).glob("*_meta.csv")``.
     """
-    # Trang: code the filter + cumulative selector here.
-    pass
+    all_records = []
+
+    # Read all *_meta.csv files
+    for csv_file in Path(csv_dir).glob("*_meta.csv"):
+        with csv_file.open(newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                duration = float(row.get("duration_seconds", 0))
+                # Filter by duration bounds
+                if min_duration <= duration <= max_duration:
+                    all_records.append({
+                        "subject_id": row["subject_id"],
+                        "session_id": row["session_id"],
+                        "site_id": row["site_id"],
+                        "duration_seconds": duration,
+                        "s3_keys": [row["s3_key"]] if "s3_key" in row else []
+                    })
+
+    # Sort by duration (shorter first for breadth)
+    all_records.sort(key=lambda r: r["duration_seconds"])
+
+    # Accumulate until we hit target
+    target_seconds = target_hours * 3600
+    cumulative = 0.0
+    selected = []
+    sites = set()
+
+    for record in all_records:
+        cumulative += record["duration_seconds"]
+        selected.append(record)
+        sites.add(record["site_id"])
+        if cumulative >= target_seconds:
+            break
+
+    actual_hours = cumulative / 3600
+
+    return {
+        "target_hours": target_hours,
+        "actual_hours": round(actual_hours, 1),
+        "site_count": len(sites),
+        "subject_count": len(selected),
+        "records": selected
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -108,17 +157,44 @@ def download_subset(
         download_root/site=<site_id>/<subject_id>/<filename>.edf
 
     Returns ``{"downloaded": N, "skipped": M, "failed": K}``.
-
-    Kim-Hung: implement.
-      1. ``boto3.client("s3", **credentials)``
-      2. iterate ``manifest["records"]``; for each record loop ``s3_keys``.
-      3. skip if local file already exists (idempotent re-runs).
-      4. on failure, route the record to the DLQ Dat builds (import
-         ``brainwatch.ingestion.dead_letter.DeadLetterQueue``).
-      5. respect ``dry_run`` — print intended target paths and return.
     """
-    # Kim-Hung: code the download loop + DLQ on failure.
-    pass
+    try:
+        import boto3
+    except ImportError:
+        logger.error("boto3 not installed; cannot download from S3")
+        return {"downloaded": 0, "skipped": 0, "failed": len(manifest.get("records", []))}
+
+    s3 = boto3.client("s3", **credentials)
+    dlq = DeadLetterQueue(download_root / "_dlq")
+
+    stats = {"downloaded": 0, "skipped": 0, "failed": 0}
+
+    for record in manifest.get("records", []):
+        site_id = record["site_id"]
+        subject_id = record["subject_id"]
+
+        for s3_key in record.get("s3_keys", []):
+            local_path = download_root / f"site={site_id}" / subject_id / s3_key.split("/")[-1]
+
+            if dry_run:
+                print(f"Dry run: would download s3://{bucket}/{s3_key} -> {local_path}")
+                stats["downloaded"] += 1
+                continue
+
+            # Skip if already exists
+            if local_path.exists():
+                stats["skipped"] += 1
+                continue
+
+            try:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                s3.download_file(bucket, s3_key, str(local_path))
+                stats["downloaded"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                dlq.route({"s3_key": s3_key, "subject_id": subject_id}, f"download failed: {e}")
+
+    return stats
 
 
 # ---------------------------------------------------------------------------
@@ -130,15 +206,22 @@ def emit_synthetic_ehr(manifest: dict[str, Any], output_path: Path,
     """For every subject in the manifest, emit ``events_per_subject`` synthetic
     EHR events to ``output_path`` (JSONL).
 
-    Each event must conform to ``brainwatch.contracts.events.EHREvent``:
-    ``patient_id, encounter_id, event_time, event_type, source_system, version, payload``.
-
-    Kim-Quan: implement here OR delegate to your
-    ``brainwatch.ingestion.ehr_normalizer.generate_ehr_from_manifest`` and call
-    it from this script. Whichever is cleaner — pick one and document it.
+    Each event conforms to ``brainwatch.contracts.events.EHREvent``.
     """
-    # Kim-Quan: code synthetic EHR generation (or call into ehr_normalizer).
-    pass
+    # Generate EHR events from manifest
+    events = generate_ehr_from_manifest(
+        output_path.parent / "temp_manifest.json",
+        events_per_subject=events_per_subject
+    )
+
+    # Write to JSONL
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    from dataclasses import asdict
+    with output_path.open("w") as f:
+        for event in events:
+            f.write(json.dumps(asdict(event), default=str) + "\n")
+
+    return len(events)
 
 
 # ---------------------------------------------------------------------------
@@ -171,14 +254,45 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
 
-    # Quang-Hung: orchestrate. Order:
-    #   1. build_manifest(...) → write to args.output (unless dry-run)
-    #   2. emit_synthetic_ehr(...) → JSONL at args.ehr_output
-    #   3. if args.download: load_aws_credentials(args.credentials)
-    #                        → download_subset(...)
-    #   4. print summary stats: subjects, hours, downloaded/failed counts.
-    # Quang-Hung: code the orchestration here.
-    pass
+    # 1. Build manifest
+    print(f"Building manifest from {args.csv_dir}...")
+    manifest = build_manifest(
+        args.csv_dir,
+        target_hours=args.target_hours,
+        min_duration=args.min_duration,
+        max_duration=args.max_duration
+    )
+    print(f"Manifest: {manifest['subject_count']} subjects, {manifest['actual_hours']}h "
+          f"across {manifest['site_count']} sites")
+
+    # 2. Write manifest (unless dry-run)
+    if not args.dry_run:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("w") as f:
+            json.dump(manifest, f, indent=2)
+        print(f"Manifest written to {args.output}")
+
+    # 3. Emit synthetic EHR
+    print(f"Generating synthetic EHR...")
+    ehr_count = emit_synthetic_ehr(
+        manifest,
+        args.ehr_output,
+        events_per_subject=args.ehr_events_per_subject
+    )
+    print(f"Generated {ehr_count} EHR events -> {args.ehr_output}")
+
+    # 4. Download if requested
+    if args.download:
+        print("Downloading EEG data from S3...")
+        creds = load_aws_credentials(args.credentials)
+        stats = download_subset(
+            manifest,
+            args.download_root,
+            creds,
+            dry_run=args.dry_run
+        )
+        print(f"Download stats: {stats['downloaded']} downloaded, "
+              f"{stats['skipped']} skipped, {stats['failed']} failed")
 
 
 if __name__ == "__main__":
