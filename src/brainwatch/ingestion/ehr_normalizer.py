@@ -1,236 +1,179 @@
-"""EHR synthetic generation and raw-to-bronze normalisation.
+"""Synthetic EHR generator + normaliser.
 
-Since BDSP provides EEG but not EHR records, this module generates
-correlated synthetic EHR events for each EEG subject and normalises
-them into the canonical ``EHREvent`` schema for the bronze zone.
+Owner: **Kim-Quan**.
+Depends on: ``brainwatch.contracts.events.EHREvent``, Kim-Hung's
+``kafka_helpers.get_producer``.
+
+Why synthetic? The BDSP corpus only ships EEG signals; the matching EHR side
+is private hospital data. For Week 2 we generate plausible synthetic EHR events
+for each subject in the download manifest, so the join in the speed layer
+(Quang-Hung's bronze_ingest) has something realistic to land on.
 """
 from __future__ import annotations
 
-import argparse
-import hashlib
 import json
 import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from brainwatch.contracts.events import EHREvent, to_payload, validate_required_fields
+from brainwatch.contracts.events import EHREvent
 from brainwatch.ingestion.kafka_helpers import get_producer
 
-EHR_REQUIRED = {"patient_id", "encounter_id", "event_time", "event_type"}
+EHR_EVENT_TYPES = ("vital_signs", "lab_result", "medication", "critical_lab", "note")
 
-# ---------------------------------------------------------------------------
-# Synthetic EHR templates
-# ---------------------------------------------------------------------------
-
-DIAGNOSIS_CODES = [
-    ("G40.0", "Epilepsy — localization-related idiopathic"),
-    ("G40.1", "Epilepsy — localization-related symptomatic"),
-    ("G40.3", "Generalized idiopathic epilepsy"),
-    ("G41.0", "Status epilepticus — grand mal"),
-    ("R56.9", "Unspecified convulsions"),
-    ("G93.1", "Anoxic brain damage"),
-    ("I63.9", "Cerebral infarction, unspecified"),
-    ("G43.9", "Migraine, unspecified"),
-]
-
-LAB_TEMPLATES = [
-    {"test": "sodium", "value_range": (130, 150), "unit": "mEq/L", "critical_low": 125, "critical_high": 155},
-    {"test": "potassium", "value_range": (3.2, 5.5), "unit": "mEq/L", "critical_low": 2.5, "critical_high": 6.5},
-    {"test": "glucose", "value_range": (60, 200), "unit": "mg/dL", "critical_low": 40, "critical_high": 400},
-    {"test": "phenytoin_level", "value_range": (5, 25), "unit": "mcg/mL", "critical_low": 0, "critical_high": 30},
-    {"test": "levetiracetam_level", "value_range": (10, 40), "unit": "mcg/mL", "critical_low": 0, "critical_high": 50},
-    {"test": "creatinine", "value_range": (0.5, 1.5), "unit": "mg/dL", "critical_low": 0, "critical_high": 4.0},
-]
-
-EVENT_TYPES = ["admission", "diagnosis", "lab_result", "medication_order", "discharge", "critical_lab"]
+# Distribution weights for event types
+EHR_WEIGHTS = {
+    "vital_signs": 0.40,
+    "lab_result": 0.25,
+    "medication": 0.20,
+    "note": 0.10,
+    "critical_lab": 0.05
+}
 
 
-def _deterministic_seed(subject_id: str) -> int:
-    return int(hashlib.md5(subject_id.encode()).hexdigest()[:8], 16)
+def _generate_payload(event_type: str) -> dict[str, Any]:
+    """Generate type-appropriate payload for an EHR event."""
+    if event_type == "vital_signs":
+        return {
+            "hr": random.randint(50, 120),
+            "spo2": round(random.uniform(0.92, 1.0), 2),
+            "rr": random.randint(10, 25),
+            "bp_systolic": random.randint(100, 160),
+            "bp_diastolic": random.randint(60, 100)
+        }
+    elif event_type == "lab_result":
+        tests = ["Na", "K", "Cl", "BUN", "Cr", "Glucose"]
+        return {
+            "test": random.choice(tests),
+            "value": round(random.uniform(50, 200), 1),
+            "unit": "mEq/L"
+        }
+    elif event_type == "medication":
+        drugs = ["levetiracetam", "lamotrigine", "valproate", "topiramate"]
+        return {
+            "drug": random.choice(drugs),
+            "dose_mg": random.choice([250, 500, 750, 1000])
+        }
+    elif event_type == "critical_lab":
+        return {
+            "test": "lactate",
+            "value": round(random.uniform(3.0, 8.0), 1),
+            "unit": "mmol/L",
+            "flag": "CRITICAL"
+        }
+    else:  # note
+        notes = [
+            "Routine neuro check, no AED change",
+            "Patient alert and oriented x3",
+            "No seizure activity observed",
+            "Pupils equal and reactive"
+        ]
+        return {"text": random.choice(notes)}
 
 
-# ---------------------------------------------------------------------------
-# Generator
-# ---------------------------------------------------------------------------
+def generate_ehr_from_manifest(manifest_path: Path,
+                               events_per_subject: int = 5) -> list[EHREvent]:
+    """For each subject in the manifest, emit ``events_per_subject`` synthetic
+    ``EHREvent`` instances spread across the 5 event types."""
+    with manifest_path.open() as f:
+        manifest = json.load(f)
 
-def generate_ehr_for_subject(
-    subject_id: str,
-    site_id: str,
-    eeg_start: datetime | None = None,
-    n_events: int = 5,
-) -> list[EHREvent]:
-    """Generate n_events synthetic EHR events for a single subject."""
-    rng = random.Random(_deterministic_seed(subject_id))
-    base_time = eeg_start or datetime.now(tz=timezone.utc) - timedelta(hours=rng.randint(1, 48))
-    encounter_id = f"ENC-{site_id}-{subject_id[-6:]}"
+    events = []
+    base_time = datetime.now(timezone.utc)
 
-    events: list[EHREvent] = []
-    for i in range(n_events):
-        offset = timedelta(minutes=rng.randint(0, 240), seconds=rng.randint(0, 59))
-        event_time = base_time + offset
-        event_type = rng.choice(EVENT_TYPES)
+    for record in manifest.get("records", []):
+        patient_id = record["subject_id"]
+        site_id = record["site_id"]
 
-        if event_type == "diagnosis":
-            code, desc = rng.choice(DIAGNOSIS_CODES)
-            payload = {"diagnosis_code": code, "description": desc}
-        elif event_type in ("lab_result", "critical_lab"):
-            lab = rng.choice(LAB_TEMPLATES)
-            value = round(rng.uniform(*lab["value_range"]), 2)
-            is_critical = value < lab["critical_low"] or value > lab["critical_high"]
-            if is_critical:
-                event_type = "critical_lab"
-            payload = {
-                "test": lab["test"], "value": value,
-                "unit": lab["unit"], "is_critical": is_critical,
-            }
-        elif event_type == "medication_order":
-            payload = {
-                "medication": rng.choice(["levetiracetam", "phenytoin", "valproate", "lacosamide"]),
-                "dose_mg": rng.choice([250, 500, 750, 1000]),
-                "route": "IV" if rng.random() < 0.3 else "PO",
-            }
-        else:
-            payload = {"note": f"Synthetic {event_type} event"}
+        # Generate events distributed across types
+        for i in range(events_per_subject):
+            # Select event type based on weights
+            event_type = random.choices(
+                list(EHR_WEIGHTS.keys()),
+                weights=list(EHR_WEIGHTS.values())
+            )[0]
 
-        events.append(EHREvent(
-            patient_id=subject_id,
-            encounter_id=encounter_id,
-            event_time=event_time.isoformat(),
-            event_type=event_type,
-            source_system=f"BDSP-{site_id}",
-            version=1,
-            payload=payload,
-        ))
+            # Jitter time around base_time by ±30 min
+            jitter = timedelta(minutes=random.randint(-30, 30))
+            event_time = base_time + jitter
 
-    events.sort(key=lambda e: e.event_time)
+            event = EHREvent(
+                patient_id=patient_id,
+                encounter_id=f"enc_{patient_id}_{site_id}_{i:03d}",
+                event_time=event_time.isoformat(),
+                event_type=event_type,
+                source_system=random.choice(["epic", "cerner"]),
+                version=1,
+                payload=_generate_payload(event_type)
+            )
+            events.append(event)
+
     return events
 
 
-def generate_ehr_from_manifest(
-    manifest_path: Path,
-    events_per_subject: int = 5,
-) -> list[EHREvent]:
-    """Generate synthetic EHR for every subject in a download manifest."""
-    with manifest_path.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
+def normalize_ehr_payload(raw: dict[str, Any]) -> EHREvent:
+    """Coerce a free-form dict into a valid ``EHREvent``."""
+    if not raw.get("patient_id"):
+        raise ValueError("patient_id is required")
+    if not raw.get("encounter_id"):
+        raise ValueError("encounter_id is required")
 
-    all_events: list[EHREvent] = []
-    for rec in data.get("records", []):
-        subject_id = rec.get("subject_id", "")
-        site_id = rec.get("site_id", "")
-        if not subject_id:
-            continue
-        all_events.extend(
-            generate_ehr_for_subject(subject_id, site_id, n_events=events_per_subject)
-        )
-    return all_events
+    # Normalize event_type
+    event_type = raw.get("event_type", "note").lower()
+    if event_type not in EHR_EVENT_TYPES:
+        event_type = "note"
 
-
-# ---------------------------------------------------------------------------
-# Normalisation (raw dict → validated EHREvent)
-# ---------------------------------------------------------------------------
-
-def normalise_raw_ehr(raw: dict[str, Any]) -> EHREvent | None:
-    """Normalise a raw EHR dict into the canonical EHREvent schema.
-
-    Returns None if required fields are missing.
-    """
-    patient_id = raw.get("patient_id") or raw.get("PatientID") or raw.get("subject_id") or ""
-    encounter_id = raw.get("encounter_id") or raw.get("EncounterID") or ""
-    event_time = raw.get("event_time") or raw.get("EventTime") or raw.get("timestamp") or ""
-    event_type = raw.get("event_type") or raw.get("EventType") or ""
-
-    if not all([patient_id, encounter_id, event_time, event_type]):
-        return None
+    # Normalize event_time to ISO-8601
+    event_time = raw.get("event_time", "")
+    if isinstance(event_time, datetime):
+        event_time = event_time.isoformat()
 
     return EHREvent(
-        patient_id=str(patient_id),
-        encounter_id=str(encounter_id),
+        patient_id=raw["patient_id"],
+        encounter_id=raw["encounter_id"],
         event_time=str(event_time),
-        event_type=str(event_type),
-        source_system=str(raw.get("source_system", "unknown")),
-        version=int(raw.get("version", 1)),
+        event_type=event_type,
+        source_system=raw.get("source_system", "unknown"),
+        version=raw.get("version", 1),
         payload={k: v for k, v in raw.items()
-                 if k not in {"patient_id", "encounter_id", "event_time",
-                              "event_type", "source_system", "version",
-                              "PatientID", "EncounterID", "EventTime", "EventType"}},
+                 if k not in ("patient_id", "encounter_id", "event_time",
+                              "event_type", "source_system", "version")}
     )
 
-
-# ---------------------------------------------------------------------------
-# Publish
-# ---------------------------------------------------------------------------
 
 def publish_ehr_events(
     events: list[EHREvent],
     topic: str = "ehr.updates",
     bootstrap_servers: str = "localhost:9092",
+    replay_speed: float = 0.0,
     fallback_path: str | None = None,
 ) -> dict[str, Any]:
-    producer = get_producer(bootstrap_servers, fallback_path=fallback_path)
-    sent, errors = 0, 0
+    """Mirror of ``eeg_producer.publish_events`` for the ``ehr.updates`` topic."""
+    from dataclasses import asdict
+    producer = get_producer(bootstrap_servers, fallback_path)
 
-    for ev in events:
-        payload = to_payload(ev)
-        missing = validate_required_fields(payload, EHR_REQUIRED)
+    stats = {"published": 0, "failed": 0, "validation_errors": 0}
+
+    for event in events:
+        payload = asdict(event)
+        missing = [f for f in EHR_REQUIRED if payload.get(f) in (None, "")]
         if missing:
-            errors += 1
+            stats["validation_errors"] += 1
             continue
-        producer.send(topic, value=ev)
-        sent += 1
+
+        try:
+            producer.send(topic, value=payload)
+            stats["published"] += 1
+
+            if replay_speed > 0:
+                time.sleep(1.0 / replay_speed)
+        except Exception:
+            stats["failed"] += 1
 
     producer.flush()
     producer.close()
-    return {"sent": sent, "errors": errors, "total": len(events)}
+    return stats
 
 
-# ---------------------------------------------------------------------------
-# Bronze file writer
-# ---------------------------------------------------------------------------
-
-def write_ehr_bronze(events: list[EHREvent], output_dir: Path) -> Path:
-    """Write EHR events as JSONL to the bronze zone."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_path = output_dir / f"ehr_bronze_{ts}.jsonl"
-    with out_path.open("w", encoding="utf-8") as fh:
-        for ev in events:
-            fh.write(json.dumps(to_payload(ev), default=str) + "\n")
-    return out_path
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Generate synthetic EHR and publish.")
-    p.add_argument("--manifest", required=True, type=Path, help="EEG download manifest")
-    p.add_argument("--events-per-subject", type=int, default=5)
-    p.add_argument("--topic", default="ehr.updates")
-    p.add_argument("--bootstrap-servers", default="localhost:9092")
-    p.add_argument("--fallback-path", default=None)
-    p.add_argument("--bronze-dir", type=Path, default=Path("data/lake/bronze/ehr"),
-                    help="Also write to bronze zone as JSONL")
-    return p
-
-
-def main() -> None:
-    args = build_parser().parse_args()
-    events = generate_ehr_from_manifest(args.manifest, args.events_per_subject)
-    print(f"Generated {len(events)} synthetic EHR events")
-
-    stats = publish_ehr_events(
-        events, topic=args.topic,
-        bootstrap_servers=args.bootstrap_servers,
-        fallback_path=args.fallback_path,
-    )
-    print(f"Kafka publish: {json.dumps(stats)}")
-
-    bronze_path = write_ehr_bronze(events, args.bronze_dir)
-    print(f"Bronze zone: {bronze_path}")
-
-
-if __name__ == "__main__":
-    main()
+EHR_REQUIRED = {"patient_id", "encounter_id", "event_time", "event_type"}

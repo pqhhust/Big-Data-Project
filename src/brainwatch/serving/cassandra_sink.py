@@ -32,34 +32,27 @@ from __future__ import annotations
 
 from typing import Any
 
-
 KEYSPACE = "brainwatch"
 
 
 def get_session(contact_points: list[str], port: int = 9042):
-    """Return a connected ``cassandra.cluster.Session``.
-
-    Kim-Quan: implement.
-      ``from cassandra.cluster import Cluster``
-      ``cluster = Cluster(contact_points, port=port)``
-      ``return cluster.connect()``
-    """
+    """Return a connected ``cassandra.cluster.Session``."""
     from cassandra.cluster import Cluster
     cluster = Cluster(contact_points, port=port)
-    return cluster.connect()
+    session = cluster.connect()
+    return session
 
 
 def init_keyspace(session: Any) -> None:
-    """Idempotently apply the keyspace + table schema.
-
-    Kim-Quan: execute each ``CREATE ... IF NOT EXISTS`` from the docstring.
-    """
-    session.execute(f"""
-        CREATE KEYSPACE IF NOT EXISTS {KEYSPACE}
-        WITH replication = {{'class': 'SimpleStrategy', 'replication_factor': 1}};
+    """Idempotently apply the keyspace + table schema."""
+    session.execute("""
+        CREATE KEYSPACE IF NOT EXISTS brainwatch
+        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
     """)
-    session.execute(f"""
-        CREATE TABLE IF NOT EXISTS {KEYSPACE}.alerts (
+    session.execute(f"USE {KEYSPACE}")
+
+    session.execute("""
+        CREATE TABLE IF NOT EXISTS brainwatch.alerts (
             patient_id     text,
             alert_time     timestamp,
             severity       text,
@@ -67,78 +60,79 @@ def init_keyspace(session: Any) -> None:
             explanation    text,
             session_id     text,
             PRIMARY KEY (patient_id, alert_time)
-        ) WITH CLUSTERING ORDER BY (alert_time DESC);
+        ) WITH CLUSTERING ORDER BY (alert_time DESC)
     """)
-    session.execute(f"""
-        CREATE TABLE IF NOT EXISTS {KEYSPACE}.patient_state (
+
+    session.execute("""
+        CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
             patient_id              text PRIMARY KEY,
             last_alert_time         timestamp,
             last_severity           text,
             signal_quality_score    float,
             anomaly_score           float
-        );
+        )
     """)
 
 
 def write_alerts(session: Any, alerts: list[dict[str, Any]]) -> int:
-    """Batch-insert alerts. Each dict needs:
-    ``patient_id, alert_time, severity, anomaly_score, explanation, session_id``.
+    """Batch-insert alerts. Returns the number of rows successfully written."""
+    from cassandra.auth import PlainTextAuthProvider
+    from cassandra.cluster import BatchStatement
 
-    Kim-Quan: implement using a prepared statement + ``BatchStatement``.
-    Returns the number of rows successfully written.
-    """
     if not alerts:
         return 0
 
-    from cassandra.query import BatchStatement
-    
-    query = f"""
-        INSERT INTO {KEYSPACE}.alerts 
-        (patient_id, alert_time, severity, anomaly_score, explanation, session_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """
-    prepared = session.prepare(query)
     batch = BatchStatement()
-    
-    count = 0
-    for a in alerts:
-        batch.add(prepared, (
-            a.get("patient_id"), a.get("alert_time"), a.get("severity"),
-            a.get("anomaly_score"), a.get("explanation"), a.get("session_id")
+    stmt = """
+        INSERT INTO brainwatch.alerts
+        (patient_id, alert_time, severity, anomaly_score, explanation, session_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """
+    for alert in alerts:
+        batch.add(stmt, (
+            alert["patient_id"],
+            alert["alert_time"],
+            alert["severity"],
+            alert["anomaly_score"],
+            alert.get("explanation", ""),
+            alert.get("session_id", "")
         ))
-        count += 1
-        
+
     session.execute(batch)
-    return count
+    return len(alerts)
 
 
 def upsert_patient_state(session: Any, patient_id: str,
                           alert_time: Any, severity: str,
                           signal_quality_score: float,
                           anomaly_score: float) -> None:
-    """Upsert (Cassandra is upsert-by-default) the latest state for a patient.
-
-    Kim-Quan: ``session.execute("INSERT INTO brainwatch.patient_state ...")``.
-    """
-    query = f"""
-        INSERT INTO {KEYSPACE}.patient_state 
+    """Upsert (Cassandra is upsert-by-default) the latest state for a patient."""
+    stmt = """
+        INSERT INTO brainwatch.patient_state
         (patient_id, last_alert_time, last_severity, signal_quality_score, anomaly_score)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
     """
-    prepared = session.prepare(query)
-    session.execute(prepared, (
-        patient_id, alert_time, severity, signal_quality_score, anomaly_score
-    ))
+    session.execute(stmt, (patient_id, alert_time, severity, signal_quality_score, anomaly_score))
 
 
 def query_recent_alerts(session: Any, patient_id: str,
                         limit: int = 10) -> list[dict[str, Any]]:
-    """Return the ``limit`` most recent alerts for a patient.
-
-    Kim-Quan: ``SELECT ... FROM brainwatch.alerts WHERE patient_id = ?
-    LIMIT ?`` — clustering key is alert_time DESC so this is a fast slice.
+    """Return the ``limit`` most recent alerts for a patient."""
+    stmt = """
+        SELECT patient_id, alert_time, severity, anomaly_score, explanation, session_id
+        FROM brainwatch.alerts
+        WHERE patient_id = %s
+        LIMIT %s
     """
-    query = f"SELECT * FROM {KEYSPACE}.alerts WHERE patient_id = ? LIMIT ?"
-    prepared = session.prepare(query)
-    rows = session.execute(prepared, (patient_id, limit))
-    return [dict(row._asdict()) for row in rows]
+    rows = session.execute(stmt, (patient_id, limit))
+    return [
+        {
+            "patient_id": row.patient_id,
+            "alert_time": row.alert_time,
+            "severity": row.severity,
+            "anomaly_score": row.anomaly_score,
+            "explanation": row.explanation,
+            "session_id": row.session_id
+        }
+        for row in rows
+    ]

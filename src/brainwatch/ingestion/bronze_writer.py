@@ -1,6 +1,10 @@
-"""Write validated events to the bronze zone with deduplication.
+"""Bronze-zone writer with deduplication and DLQ routing.
 
-Bronze zone layout::
+Owner: **Kim-Hung**.
+Depends on: ``brainwatch.contracts.events`` (already exists), and
+``brainwatch.ingestion.dead_letter.DeadLetterQueue`` (Dat).
+
+Bronze layout on disk::
 
     data/lake/bronze/
     ├── eeg/
@@ -15,42 +19,35 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-from datetime import datetime, timezone
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from brainwatch.contracts.events import (
-    EEGChunkEvent,
-    EHREvent,
-    to_payload,
-    validate_required_fields,
-)
+from brainwatch.contracts.events import EEGChunkEvent, EHREvent
 from brainwatch.ingestion.dead_letter import DeadLetterQueue
-
-logger = logging.getLogger(__name__)
 
 EEG_REQUIRED = {"patient_id", "session_id", "event_time", "site_id"}
 EHR_REQUIRED = {"patient_id", "encounter_id", "event_time", "event_type"}
 
 
 def _event_fingerprint(payload: dict[str, Any]) -> str:
-    """Deterministic hash for dedup: patient + session/encounter + event_time."""
-    key_parts = [
-        payload.get("patient_id", ""),
-        payload.get("session_id", "") or payload.get("encounter_id", ""),
-        payload.get("event_time", ""),
-    ]
-    return hashlib.sha256("|".join(key_parts).encode()).hexdigest()[:16]
+    """Deterministic dedup key."""
+    patient_id = payload.get("patient_id", "")
+    session_id = payload.get("session_id") or payload.get("encounter_id", "")
+    event_time = payload.get("event_time", "")
+    key = "|".join([patient_id, str(session_id), event_time])
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 class BronzeWriter:
     """Append events to partitioned JSONL files in the bronze zone."""
 
-    def __init__(self, bronze_root: str | Path, dlq: DeadLetterQueue | None = None) -> None:
-        self._root = Path(bronze_root)
-        self._root.mkdir(parents=True, exist_ok=True)
-        self._dlq = dlq or DeadLetterQueue(self._root / "_dead_letter")
+    def __init__(self, bronze_root: str | Path, dlq=None) -> None:
+        from brainwatch.ingestion.dead_letter import DeadLetterQueue
+        self._bronze_root = Path(bronze_root)
+        self._bronze_root.mkdir(parents=True, exist_ok=True)
+        self._dlq = dlq or DeadLetterQueue(self._bronze_root / "_dead_letter")
         self._seen: set[str] = set()
         self._stats = {"written": 0, "duplicates": 0, "errors": 0}
 
@@ -59,61 +56,65 @@ class BronzeWriter:
     # ------------------------------------------------------------------
 
     def write_eeg(self, event: EEGChunkEvent) -> bool:
-        return self._write("eeg", to_payload(event), EEG_REQUIRED,
-                           partition_key=event.site_id)
+        """Validate + dedup + append. Return True if written, False if dropped."""
+        return self._write("eeg", asdict(event), EEG_REQUIRED, partition_key=event.site_id)
 
     def write_ehr(self, event: EHREvent) -> bool:
-        return self._write("ehr", to_payload(event), EHR_REQUIRED)
+        """Validate + dedup + append. Return True if written, False if dropped."""
+        return self._write("ehr", asdict(event), EHR_REQUIRED)
 
     def write_raw(self, stream: str, payload: dict[str, Any]) -> bool:
+        """Useful when records arrive as dicts (e.g. from Kafka). Pick the right
+        ``required`` set based on ``stream`` ('eeg' or 'ehr')."""
         required = EEG_REQUIRED if stream == "eeg" else EHR_REQUIRED
-        partition_key = payload.get("site_id") if stream == "eeg" else None
-        return self._write(stream, payload, required, partition_key=partition_key)
+        return self._write(stream, payload, required)
 
     @property
     def stats(self) -> dict[str, int]:
-        return dict(self._stats)
+        return self._stats.copy()
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _write(
-        self,
-        stream: str,
-        payload: dict[str, Any],
-        required: set[str],
-        partition_key: str | None = None,
-    ) -> bool:
-        # Validate
+    def _write(self, stream: str, payload: dict[str, Any],
+               required: set[str], partition_key: str | None = None) -> bool:
+        """The single code path used by all the public ``write_*`` methods."""
+        # 1. Validate required fields
         missing = validate_required_fields(payload, required)
         if missing:
-            self._dlq.route(payload, reason=f"missing fields: {missing}")
+            self._dlq.route(payload, f"missing fields: {', '.join(sorted(missing))}")
             self._stats["errors"] += 1
             return False
 
-        # Dedup
-        fp = _event_fingerprint(payload)
-        if fp in self._seen:
+        # 2. Dedup via fingerprint
+        fingerprint = _event_fingerprint(payload)
+        if fingerprint in self._seen:
             self._stats["duplicates"] += 1
             return False
-        self._seen.add(fp)
+        self._seen.add(fingerprint)
 
-        # Determine partition path
-        today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-        parts = [stream]
+        # 3. Compute partition path
+        now = datetime.utcnow()
+        date_part = f"date={now.strftime('%Y-%m-%d')}"
         if partition_key:
-            parts.append(f"site={partition_key}")
-        parts.append(f"date={today}")
-        out_dir = self._root
-        for p in parts:
-            out_dir = out_dir / p
-        out_dir.mkdir(parents=True, exist_ok=True)
+            partition_dir = self._bronze_root / stream / f"site={partition_key}" / date_part
+        else:
+            partition_dir = self._bronze_root / stream / date_part
+        partition_dir.mkdir(parents=True, exist_ok=True)
 
-        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-        out_path = out_dir / f"{stream}_bronze_{ts}.jsonl"
-        with out_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, default=str) + "\n")
+        # 4. Write JSONL line
+        ts = now.strftime("%Y%m%d_%H%M%S")
+        file_path = partition_dir / f"{stream}_bronze_{ts}.jsonl"
+        # If file exists and has content, append; otherwise create new
+        with file_path.open("a") as f:
+            f.write(json.dumps(payload, default=str) + "\n")
 
         self._stats["written"] += 1
         return True
+
+
+def validate_required_fields(payload: dict[str, Any], required_fields: set[str]) -> list[str]:
+    """Return list of missing/empty required fields."""
+    return [field for field in sorted(required_fields)
+            if payload.get(field) in (None, "")]

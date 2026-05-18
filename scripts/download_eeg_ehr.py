@@ -27,18 +27,17 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from brainwatch.ingestion.dead_letter import DeadLetterQueue
+from brainwatch.ingestion.ehr_normalizer import generate_ehr_from_manifest
 
 DEFAULT_CREDS = os.path.expanduser("~/credentials/rootkey.csv")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -51,20 +50,15 @@ def load_aws_credentials(path: str | Path) -> dict[str, str]:
     Returns ``{"aws_access_key_id": ..., "aws_secret_access_key": ...}`` so it
     can be unpacked straight into ``boto3.client("s3", **creds)``.
 
-    Quang-Hung: implement (5 lines — csv.DictReader, single row, rename keys).
     Never log or print the secret value.
     """
-    with Path(path).open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        row = next(reader, None)
-
-    if not row:
-        raise ValueError("credential CSV is empty")
-
-    return {
-        "aws_access_key_id": row.get("Access key ID", "").strip(),
-        "aws_secret_access_key": row.get("Secret access key", "").strip(),
-    }
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        row = next(reader)
+        return {
+            "aws_access_key_id": row["Access key ID"],
+            "aws_secret_access_key": row["Secret access key"]
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +78,7 @@ def build_manifest(
       - keep rows whose ``duration_seconds`` is between ``min_duration`` and
         ``max_duration``
       - prefer shorter recordings first (we want breadth, not whales)
-      - stop once cumulative duration ≥ target_hours * 3600
+      - stop once cumulative duration >= target_hours * 3600
 
     Returns a dict shaped like::
 
@@ -99,87 +93,49 @@ def build_manifest(
             ...
           ]
         }
-
-    Trang: implement.  Tip: ``Path(csv_dir).glob("*_meta.csv")``.
     """
-    csv_dir = Path(csv_dir)
-    meta_files = sorted(csv_dir.glob("*_meta.csv"))
-    candidates: list[dict[str, Any]] = []
+    all_records = []
 
-    if meta_files:
-        for meta_file in meta_files:
-            with meta_file.open("r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle)
-                for row in reader:
-                    raw_duration = row.get("duration_seconds") or row.get("DurationInSeconds") or row.get("RecordingDuration")
-                    try:
-                        duration = float(raw_duration) if raw_duration else None
-                    except ValueError:
-                        duration = None
-                    if duration is None or duration < min_duration or duration > max_duration:
-                        continue
+    # Read all *_meta.csv files
+    for csv_file in Path(csv_dir).glob("*_meta.csv"):
+        with csv_file.open(newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                duration = float(row.get("duration_seconds", 0))
+                # Filter by duration bounds
+                if min_duration <= duration <= max_duration:
+                    all_records.append({
+                        "subject_id": row["subject_id"],
+                        "session_id": row["session_id"],
+                        "site_id": row["site_id"],
+                        "duration_seconds": duration,
+                        "s3_keys": [row["s3_key"]] if "s3_key" in row else []
+                    })
 
-                    s3_keys_raw = row.get("s3_keys") or row.get("candidate_source_keys") or row.get("s3_key") or ""
-                    if isinstance(s3_keys_raw, str) and s3_keys_raw.strip():
-                        if s3_keys_raw.strip().startswith("["):
-                            try:
-                                s3_keys = json.loads(s3_keys_raw)
-                            except json.JSONDecodeError:
-                                s3_keys = [s3_keys_raw.strip()]
-                        else:
-                            s3_keys = [key.strip() for key in s3_keys_raw.split("|") if key.strip()]
-                    elif isinstance(s3_keys_raw, list):
-                        s3_keys = [str(key).strip() for key in s3_keys_raw if str(key).strip()]
-                    else:
-                        s3_keys = []
+    # Sort by duration (shorter first for breadth)
+    all_records.sort(key=lambda r: r["duration_seconds"])
 
-                    if not s3_keys:
-                        continue
+    # Accumulate until we hit target
+    target_seconds = target_hours * 3600
+    cumulative = 0.0
+    selected = []
+    sites = set()
 
-                    candidates.append(
-                        {
-                            "subject_id": row.get("subject_id") or row.get("BidsFolder") or row.get("subject") or "UNKNOWN",
-                            "session_id": row.get("session_id") or row.get("SessionID") or "0",
-                            "site_id": row.get("site_id") or row.get("SiteID") or row.get("InstituteID") or "UNKNOWN",
-                            "duration_seconds": duration,
-                            "s3_keys": s3_keys,
-                            "local_target_dir": row.get("local_target_dir") or "data/raw/eeg",
-                        }
-                    )
-    else:
-        for edf_path in sorted(csv_dir.rglob("*.edf")):
-            parts = edf_path.parts
-            subject_id = next((part for part in parts if part.startswith("sub-")), edf_path.stem)
-            session_id = next((part.removeprefix("ses-") for part in parts if part.startswith("ses-")), "1")
-            site_id = csv_dir.name if csv_dir.name else "UNKNOWN"
-            candidates.append(
-                {
-                    "subject_id": subject_id,
-                    "session_id": session_id,
-                    "site_id": site_id,
-                    "duration_seconds": 300.0,
-                    "s3_keys": [str(edf_path).replace("\\", "/")],
-                    "local_target_dir": "data/raw/eeg",
-                }
-            )
-
-    selected: list[dict[str, Any]] = []
-    accumulated_seconds = 0.0
-    for record in sorted(candidates, key=lambda item: item["duration_seconds"]):
+    for record in all_records:
+        cumulative += record["duration_seconds"]
         selected.append(record)
-        accumulated_seconds += float(record["duration_seconds"])
-        if accumulated_seconds >= target_hours * 3600.0:
+        sites.add(record["site_id"])
+        if cumulative >= target_seconds:
             break
 
-    sites = {record["site_id"] for record in selected}
-    subjects = {record["subject_id"] for record in selected}
+    actual_hours = cumulative / 3600
+
     return {
         "target_hours": target_hours,
-        "actual_hours": round(accumulated_seconds / 3600.0, 2),
+        "actual_hours": round(actual_hours, 1),
         "site_count": len(sites),
-        "subject_count": len(subjects),
-        "record_count": len(selected),
-        "records": selected,
+        "subject_count": len(selected),
+        "records": selected
     }
 
 
@@ -201,44 +157,42 @@ def download_subset(
         download_root/site=<site_id>/<subject_id>/<filename>.edf
 
     Returns ``{"downloaded": N, "skipped": M, "failed": K}``.
-
-    Kim-Hung: implement.
-      1. ``boto3.client("s3", **credentials)``
-      2. iterate ``manifest["records"]``; for each record loop ``s3_keys``.
-      3. skip if local file already exists (idempotent re-runs).
-      4. on failure, route the record to the DLQ Dat builds (import
-         ``brainwatch.ingestion.dead_letter.DeadLetterQueue``).
-      5. respect ``dry_run`` — print intended target paths and return.
     """
     try:
         import boto3
-    except ImportError as exc:
-        raise ImportError("boto3 is required for download_subset") from exc
+    except ImportError:
+        logger.error("boto3 not installed; cannot download from S3")
+        return {"downloaded": 0, "skipped": 0, "failed": len(manifest.get("records", []))}
 
-    download_root.mkdir(parents=True, exist_ok=True)
-    client = boto3.client("s3", **credentials)
+    s3 = boto3.client("s3", **credentials)
+    dlq = DeadLetterQueue(download_root / "_dlq")
+
     stats = {"downloaded": 0, "skipped": 0, "failed": 0}
 
-    records = manifest.get("records", [])
-    for record in records:
-        site_id = record.get("site_id", "UNKNOWN")
-        subject_id = record.get("subject_id", "UNKNOWN")
-        for s3_key in record.get("s3_keys") or record.get("candidate_source_keys") or []:
-            filename = Path(str(s3_key)).name
-            target_path = download_root / f"site={site_id}" / subject_id / filename
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if target_path.exists():
-                stats["skipped"] += 1
-                continue
+    for record in manifest.get("records", []):
+        site_id = record["site_id"]
+        subject_id = record["subject_id"]
+
+        for s3_key in record.get("s3_keys", []):
+            local_path = download_root / f"site={site_id}" / subject_id / s3_key.split("/")[-1]
+
             if dry_run:
-                print(target_path)
+                print(f"Dry run: would download s3://{bucket}/{s3_key} -> {local_path}")
+                stats["downloaded"] += 1
+                continue
+
+            # Skip if already exists
+            if local_path.exists():
                 stats["skipped"] += 1
                 continue
+
             try:
-                client.download_file(bucket, str(s3_key), str(target_path))
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                s3.download_file(bucket, s3_key, str(local_path))
                 stats["downloaded"] += 1
-            except Exception:
+            except Exception as e:
                 stats["failed"] += 1
+                dlq.route({"s3_key": s3_key, "subject_id": subject_id}, f"download failed: {e}")
 
     return stats
 
@@ -252,26 +206,20 @@ def emit_synthetic_ehr(manifest: dict[str, Any], output_path: Path,
     """For every subject in the manifest, emit ``events_per_subject`` synthetic
     EHR events to ``output_path`` (JSONL).
 
-    Each event must conform to ``brainwatch.contracts.events.EHREvent``:
-    ``patient_id, encounter_id, event_time, event_type, source_system, version, payload``.
-
-    Kim-Quan: implement here OR delegate to your
-    ``brainwatch.ingestion.ehr_normalizer.generate_ehr_from_manifest`` and call
-    it from this script. Whichever is cleaner — pick one and document it.
+    Each event conforms to ``brainwatch.contracts.events.EHREvent``.
     """
-    from brainwatch.contracts.events import to_payload
-    from brainwatch.ingestion.ehr_normalizer import generate_ehr_from_manifest
+    # Generate EHR events from manifest
+    events = generate_ehr_from_manifest(
+        output_path.parent / "temp_manifest.json",
+        events_per_subject=events_per_subject
+    )
 
+    # Write to JSONL
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_manifest_path = output_path.with_suffix(".manifest.json")
-    temp_manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    events = generate_ehr_from_manifest(temp_manifest_path, events_per_subject=events_per_subject)
-    temp_manifest_path.unlink(missing_ok=True)
-
-    with output_path.open("w", encoding="utf-8") as handle:
+    from dataclasses import asdict
+    with output_path.open("w") as f:
         for event in events:
-            handle.write(json.dumps(to_payload(event), default=str))
-            handle.write("\n")
+            f.write(json.dumps(asdict(event), default=str) + "\n")
 
     return len(events)
 
@@ -306,23 +254,45 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
 
-    manifest = build_manifest(args.csv_dir, args.target_hours, args.min_duration, args.max_duration)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # 1. Build manifest
+    print(f"Building manifest from {args.csv_dir}...")
+    manifest = build_manifest(
+        args.csv_dir,
+        target_hours=args.target_hours,
+        min_duration=args.min_duration,
+        max_duration=args.max_duration
+    )
+    print(f"Manifest: {manifest['subject_count']} subjects, {manifest['actual_hours']}h "
+          f"across {manifest['site_count']} sites")
 
-    ehr_count = emit_synthetic_ehr(manifest, args.ehr_output, events_per_subject=args.ehr_events_per_subject)
+    # 2. Write manifest (unless dry-run)
+    if not args.dry_run:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("w") as f:
+            json.dump(manifest, f, indent=2)
+        print(f"Manifest written to {args.output}")
 
-    download_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
+    # 3. Emit synthetic EHR
+    print(f"Generating synthetic EHR...")
+    ehr_count = emit_synthetic_ehr(
+        manifest,
+        args.ehr_output,
+        events_per_subject=args.ehr_events_per_subject
+    )
+    print(f"Generated {ehr_count} EHR events -> {args.ehr_output}")
+
+    # 4. Download if requested
     if args.download:
-        credentials = load_aws_credentials(args.credentials)
-        download_stats = download_subset(manifest, args.download_root, credentials, dry_run=args.dry_run)
-
-    print(json.dumps({
-        "subjects": manifest["subject_count"],
-        "hours": manifest["actual_hours"],
-        "ehr_events": ehr_count,
-        **download_stats,
-    }, indent=2, sort_keys=True))
+        print("Downloading EEG data from S3...")
+        creds = load_aws_credentials(args.credentials)
+        stats = download_subset(
+            manifest,
+            args.download_root,
+            creds,
+            dry_run=args.dry_run
+        )
+        print(f"Download stats: {stats['downloaded']} downloaded, "
+              f"{stats['skipped']} skipped, {stats['failed']} failed")
 
 
 if __name__ == "__main__":
