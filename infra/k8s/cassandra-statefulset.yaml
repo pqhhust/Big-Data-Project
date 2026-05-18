@@ -19,7 +19,94 @@
 # Cluster contact point from inside the brainwatch namespace:
 #   cassandra-0.cassandra-svc.brainwatch.svc.cluster.local
 
-# Dat: replace this stub with the Service + StatefulSet (and optional Job).
 apiVersion: v1
 kind: List
-items: []
+items:
+  # 1. Headless Service — cho phép các pod khác reach Cassandra qua DNS:
+  #    cassandra-0.cassandra-svc.brainwatch.svc.cluster.local
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: cassandra-svc
+      namespace: brainwatch
+      labels:
+        app: cassandra
+    spec:
+      clusterIP: None          # headless
+      selector:
+        app: cassandra
+      ports:
+        - name: cql
+          port: 9042
+          targetPort: 9042
+        - name: intra-node
+          port: 7000
+          targetPort: 7000
+
+  # 2. StatefulSet — 1 replica Cassandra 4.1
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: cassandra
+      namespace: brainwatch
+    spec:
+      serviceName: cassandra-svc
+      replicas: 1
+      selector:
+        matchLabels:
+          app: cassandra
+      template:
+        metadata:
+          labels:
+            app: cassandra
+        spec:
+          containers:
+            - name: cassandra
+              image: cassandra:4.1
+              ports:
+                - containerPort: 9042
+                  name: cql
+                - containerPort: 7000
+                  name: intra-node
+              env:
+                - name: CASSANDRA_CLUSTER_NAME
+                  value: brainwatch-cluster
+                - name: CASSANDRA_DC
+                  value: dc1
+                - name: CASSANDRA_RACK
+                  value: rack1
+                - name: HEAP_NEWSIZE
+                  value: 256M
+                - name: MAX_HEAP_SIZE
+                  value: 2G
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+              volumeMounts:
+                - name: cassandra-data
+                  mountPath: /var/lib/cassandra
+              livenessProbe:
+                exec:
+                  command: ["/bin/bash", "-c", "nodetool status"]
+                initialDelaySeconds: 60
+                periodSeconds: 30
+                timeoutSeconds: 10
+                failureThreshold: 5
+              readinessProbe:
+                exec:
+                  command: ["/bin/bash", "-c", "nodetool status | grep -E '^UN'"]
+                initialDelaySeconds: 60
+                periodSeconds: 15
+                timeoutSeconds: 10
+      volumeClaimTemplates:
+        - metadata:
+            name: cassandra-data
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 20Gi
