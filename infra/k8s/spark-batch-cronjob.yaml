@@ -5,7 +5,7 @@
 # Schedule: 03:00 UTC daily (low load on the cluster).
 # Dat: implement.
 #   - kind: CronJob, schedule: "0 3 * * *", concurrencyPolicy: Forbid.
-#   - container image: bitnami/spark:3.5
+#   - container image: apache/spark:3.5.4
 #   - command:
 #       /opt/bitnami/spark/bin/spark-submit \
 #         --master local[*] \
@@ -39,7 +39,7 @@ items:
               restartPolicy: Never
               containers:
                 - name: spark-batch
-                  image: bitnami/spark:3.5
+                  image: apache/spark:3.5.4
                   # TODO: confirm exact --bronze/--silver/--gold path args with Kim-Quan
                   # once silver_layer.main() and gold_layer.main() are implemented.
                   command:

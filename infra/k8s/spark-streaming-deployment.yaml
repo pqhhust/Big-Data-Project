@@ -8,7 +8,7 @@
 #
 # Dat: implement.
 #   - kind: Deployment, replicas: 1, restartPolicy: Always.
-#   - image: bitnami/spark:3.5
+#   - image: apache/spark:3.5.4
 #   - command:
 #       /opt/bitnami/spark/bin/spark-submit \
 #         --master local[*] \
@@ -49,7 +49,7 @@ items:
         spec:
           containers:
             - name: spark-streaming
-              image: bitnami/spark:3.5
+              image: apache/spark:3.5.4
               command:
                 - /opt/bitnami/spark/bin/spark-submit
                 - --master
