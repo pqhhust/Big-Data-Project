@@ -56,9 +56,11 @@ def test_publish_events_uses_file_fallback(tmp_path: Path):
     manifest_path = _write_manifest(tmp_path, n_records=3)
     events = manifest_to_events(manifest_path)
 
+    # Use invalid bootstrap servers to force fallback
     fallback_path = tmp_path / "fallback.jsonl"
     stats = publish_events(
         events,
+        bootstrap_servers="invalid:9999",
         fallback_path=str(fallback_path)
     )
 
