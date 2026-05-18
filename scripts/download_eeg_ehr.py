@@ -101,15 +101,24 @@ def build_manifest(
         with csv_file.open(newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                duration = float(row.get("duration_seconds", 0))
+                # Handle different column name conventions
+                duration_str = row.get("DurationInSeconds") or row.get("duration_seconds") or "0"
+                try:
+                    duration = float(duration_str)
+                except ValueError:
+                    continue
                 # Filter by duration bounds
                 if min_duration <= duration <= max_duration:
+                    subject_id = row.get("BDSPPatientID") or row.get("subject_id") or "UNKNOWN"
+                    session_id = row.get("SessionID") or row.get("session_id") or "1"
+                    site_id = row.get("SiteID") or row.get("site_id") or "UNKNOWN"
+                    s3_key = row.get("s3_key") or row.get("BidsFolder") or f"{site_id}/{subject_id}"
                     all_records.append({
-                        "subject_id": row["subject_id"],
-                        "session_id": row["session_id"],
-                        "site_id": row["site_id"],
+                        "subject_id": subject_id,
+                        "session_id": session_id,
+                        "site_id": site_id,
                         "duration_seconds": duration,
-                        "s3_keys": [row["s3_key"]] if "s3_key" in row else []
+                        "s3_keys": [s3_key]
                     })
 
     # Sort by duration (shorter first for breadth)
@@ -208,18 +217,45 @@ def emit_synthetic_ehr(manifest: dict[str, Any], output_path: Path,
 
     Each event conforms to ``brainwatch.contracts.events.EHREvent``.
     """
-    # Generate EHR events from manifest
-    events = generate_ehr_from_manifest(
-        output_path.parent / "temp_manifest.json",
-        events_per_subject=events_per_subject
-    )
+    # Generate EHR events directly from manifest data (no temp file needed)
+    from brainwatch.ingestion.ehr_normalizer import _generate_payload
+    import random
 
-    # Write to JSONL
     output_path.parent.mkdir(parents=True, exist_ok=True)
     from dataclasses import asdict
+    from datetime import datetime, timezone, timedelta
+
+    events = []
+    base_time = datetime.now(timezone.utc)
+
+    for record in manifest.get("records", []):
+        patient_id = record["subject_id"]
+        site_id = record["site_id"]
+
+        for i in range(events_per_subject):
+            event_type = random.choices(
+                ["vital_signs", "lab_result", "medication", "note", "critical_lab"],
+                weights=[0.40, 0.25, 0.20, 0.10, 0.05]
+            )[0]
+
+            jitter = timedelta(minutes=random.randint(-30, 30))
+            event_time = base_time + jitter
+
+            event = {
+                "patient_id": patient_id,
+                "encounter_id": f"enc_{patient_id}_{site_id}_{i:03d}",
+                "event_time": event_time.isoformat(),
+                "event_type": event_type,
+                "source_system": random.choice(["epic", "cerner"]),
+                "version": 1,
+                "payload": _generate_payload(event_type)
+            }
+            events.append(event)
+
+    # Write to JSONL
     with output_path.open("w") as f:
         for event in events:
-            f.write(json.dumps(asdict(event), default=str) + "\n")
+            f.write(json.dumps(event, default=str) + "\n")
 
     return len(events)
 
@@ -265,12 +301,11 @@ def main() -> None:
     print(f"Manifest: {manifest['subject_count']} subjects, {manifest['actual_hours']}h "
           f"across {manifest['site_count']} sites")
 
-    # 2. Write manifest (unless dry-run)
-    if not args.dry_run:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("w") as f:
-            json.dump(manifest, f, indent=2)
-        print(f"Manifest written to {args.output}")
+    # 2. Write manifest
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("w") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Manifest written to {args.output}")
 
     # 3. Emit synthetic EHR
     print(f"Generating synthetic EHR...")
@@ -281,18 +316,25 @@ def main() -> None:
     )
     print(f"Generated {ehr_count} EHR events -> {args.ehr_output}")
 
-    # 4. Download if requested
-    if args.download:
+    # 4. Download if requested (not in dry-run mode)
+    if args.download and not args.dry_run:
         print("Downloading EEG data from S3...")
         creds = load_aws_credentials(args.credentials)
         stats = download_subset(
             manifest,
             args.download_root,
             creds,
-            dry_run=args.dry_run
+            dry_run=False
         )
         print(f"Download stats: {stats['downloaded']} downloaded, "
               f"{stats['skipped']} skipped, {stats['failed']} failed")
+
+    # Summary
+    print("\n=== Summary ===")
+    print(f"Subjects: {manifest['subject_count']}")
+    print(f"Hours: {manifest['actual_hours']}")
+    print(f"Sites: {manifest['site_count']}")
+    print(f"EHR events: {ehr_count}")
 
 
 if __name__ == "__main__":
