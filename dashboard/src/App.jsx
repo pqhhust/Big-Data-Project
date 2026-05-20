@@ -8,7 +8,7 @@ import TopPatients from "./components/TopPatients.jsx";
 import RecentAlerts from "./components/RecentAlerts.jsx";
 import { loadAlerts, computeSummary } from "./data/loadAlerts.js";
 
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 3_000;
 
 export default function App() {
   const [alerts, setAlerts] = useState([]);

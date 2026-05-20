@@ -1,0 +1,327 @@
+{
+  "title": "BrainWatch",
+  "uid": "brainwatch-main",
+  "tags": ["brainwatch"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "editable": true,
+  "graphTooltip": 1,
+  "style": "dark",
+  "liveNow": true,
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Total alerts",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 5},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "#5794F2"},
+          "unit": "short", "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#5794F2"}]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^total$/", "values": false}
+      },
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/summary.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [{"selector": "total", "text": "total", "type": "number"}]
+      }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Critical",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 5},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"}, "unit": "short", "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [
+            {"value": null, "color": "green"},
+            {"value": 1, "color": "orange"},
+            {"value": 10, "color": "red"}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid", "graphMode": "area",
+        "justifyMode": "center", "textMode": "value", "wideLayout": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^critical$/", "values": false}
+      },
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/summary.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [{"selector": "critical", "text": "critical", "type": "number"}]
+      }]
+    },
+    {
+      "id": 3, "type": "gauge", "title": "Mean anomaly score",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 5},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "unit": "none", "decimals": 2, "min": 0, "max": 1,
+          "thresholds": {"mode": "absolute", "steps": [
+            {"value": null, "color": "green"},
+            {"value": 0.4, "color": "blue"},
+            {"value": 0.65, "color": "orange"},
+            {"value": 0.85, "color": "red"}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^mean_score$/", "values": false}
+      },
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/summary.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [{"selector": "mean_score", "text": "mean_score", "type": "number"}]
+      }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Patients",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 5},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "#8F3BB8"},
+          "unit": "short", "decimals": 0,
+          "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#8F3BB8"}]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid", "graphMode": "none",
+        "justifyMode": "center", "textMode": "value", "wideLayout": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^unique_patients$/", "values": false}
+      },
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/summary.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [{"selector": "unique_patients", "text": "unique_patients", "type": "number"}]
+      }]
+    },
+
+    {
+      "id": 10, "type": "timeseries", "title": "Alerts per minute · last hour",
+      "gridPos": {"x": 0, "y": 5, "w": 18, "h": 10},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2,
+            "fillOpacity": 25, "showPoints": "never", "spanNulls": true,
+            "gradientMode": "opacity",
+            "stacking": {"mode": "normal", "group": "A"},
+            "axisLabel": "", "axisPlacement": "auto", "axisGridShow": false,
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "color": {"mode": "palette-classic"}, "unit": "short"
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+          {"matcher": {"id": "byName", "options": "warning"},  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
+          {"matcher": {"id": "byName", "options": "advisory"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#5794F2"}}]},
+          {"matcher": {"id": "byName", "options": "normal"},   "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#73BF69"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/timeline.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [
+          {"selector": "t", "text": "Time", "type": "timestamp"},
+          {"selector": "critical", "text": "critical", "type": "number"},
+          {"selector": "warning",  "text": "warning",  "type": "number"},
+          {"selector": "advisory", "text": "advisory", "type": "number"},
+          {"selector": "normal",   "text": "normal",   "type": "number"}
+        ]
+      }]
+    },
+
+    {
+      "id": 20, "type": "piechart", "title": "Severity mix",
+      "gridPos": {"x": 18, "y": 5, "w": 6, "h": 10},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "unit": "short", "mappings": []},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "critical"},   "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+          {"matcher": {"id": "byName", "options": "warning"},    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
+          {"matcher": {"id": "byName", "options": "advisory"},   "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#5794F2"}}]},
+          {"matcher": {"id": "byName", "options": "normal"},     "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#73BF69"}}]},
+          {"matcher": {"id": "byName", "options": "suppressed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#888"}}]}
+        ]
+      },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": ["percent"],
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true, "values": []},
+        "tooltip": {"mode": "single"},
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^(critical|warning|advisory|normal|suppressed)$/", "values": false}
+      },
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/summary.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [
+          {"selector": "critical",   "text": "critical",   "type": "number"},
+          {"selector": "warning",    "text": "warning",    "type": "number"},
+          {"selector": "advisory",   "text": "advisory",   "type": "number"},
+          {"selector": "normal",     "text": "normal",     "type": "number"},
+          {"selector": "suppressed", "text": "suppressed", "type": "number"}
+        ]
+      }]
+    },
+
+    {
+      "id": 30, "type": "barchart", "title": "Anomaly score distribution",
+      "gridPos": {"x": 0, "y": 15, "w": 12, "h": 8},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "#5794F2"},
+          "custom": {
+            "axisLabel": "", "axisPlacement": "auto", "axisGridShow": false,
+            "lineWidth": 0, "fillOpacity": 90,
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {"matcher": {"id": "byValue", "options": {"reducer": "allValues"}}, "properties": []}
+        ]
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0, "xTickLabelSpacing": 100,
+        "showValue": "never", "stacking": "none",
+        "groupWidth": 0.8, "barWidth": 0.95, "barRadius": 0.15,
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "single"},
+        "xField": "bin_center"
+      },
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/score_histogram.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [
+          {"selector": "bin_center", "text": "bin_center", "type": "number"},
+          {"selector": "count",      "text": "count",      "type": "number"}
+        ]
+      }]
+    },
+
+    {
+      "id": 40, "type": "table", "title": "Top patients · weighted risk",
+      "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"align": "left", "displayMode": "auto", "inspect": false, "filterable": false},
+          "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]},
+          "color": {"mode": "thresholds"}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "risk"}, "properties": [
+            {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}},
+            {"id": "custom.align", "value": "center"},
+            {"id": "color", "value": {"mode": "continuous-RdYlGr"}}
+          ]},
+          {"matcher": {"id": "byName", "options": "crit"}, "properties": [
+            {"id": "custom.align", "value": "center"},
+            {"id": "color", "value": {"mode": "thresholds"}},
+            {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}, {"value": 1, "color": "red"}]}},
+            {"id": "custom.cellOptions", "value": {"type": "color-text"}}
+          ]},
+          {"matcher": {"id": "byName", "options": "max score"}, "properties": [{"id": "decimals", "value": 2}]}
+        ]
+      },
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "md"},
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/top_patients.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [
+          {"selector": "patient_id", "text": "patient",  "type": "string"},
+          {"selector": "risk",       "text": "risk",      "type": "number"},
+          {"selector": "critical",   "text": "crit",      "type": "number"},
+          {"selector": "max_score",  "text": "max score", "type": "number"}
+        ]
+      }]
+    },
+
+    {
+      "id": 50, "type": "table", "title": "Latest alerts",
+      "gridPos": {"x": 0, "y": 23, "w": 24, "h": 10},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"align": "left", "displayMode": "auto", "inspect": false, "filterable": false},
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "severity"}, "properties": [
+            {"id": "mappings", "value": [
+              {"type": "value", "options": {"critical":   {"color": "red",    "text": "● critical",   "index": 0}}},
+              {"type": "value", "options": {"warning":    {"color": "orange", "text": "● warning",    "index": 1}}},
+              {"type": "value", "options": {"advisory":   {"color": "#5794F2","text": "● advisory",   "index": 2}}},
+              {"type": "value", "options": {"normal":     {"color": "#73BF69","text": "● normal",     "index": 3}}},
+              {"type": "value", "options": {"suppressed": {"color": "#888",   "text": "● suppressed", "index": 4}}}
+            ]},
+            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+            {"id": "custom.align", "value": "left"},
+            {"id": "custom.width", "value": 130}
+          ]},
+          {"matcher": {"id": "byName", "options": "score"}, "properties": [{"id": "decimals", "value": 3}, {"id": "custom.width", "value": 90}]},
+          {"matcher": {"id": "byName", "options": "time"}, "properties": [{"id": "custom.width", "value": 220}]}
+        ]
+      },
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "targets": [{
+        "refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend",
+        "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/recent.json",
+        "url_options": {"method": "GET", "data": ""},
+        "root_selector": "",
+        "columns": [
+          {"selector": "alert_time",    "text": "time",        "type": "timestamp"},
+          {"selector": "patient_id",    "text": "patient",     "type": "string"},
+          {"selector": "severity",      "text": "severity",    "type": "string"},
+          {"selector": "anomaly_score", "text": "score",       "type": "number"},
+          {"selector": "explanation",   "text": "explanation", "type": "string"}
+        ]
+      }]
+    }
+  ]
+}
