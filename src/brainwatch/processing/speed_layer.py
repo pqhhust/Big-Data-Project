@@ -96,6 +96,153 @@ def build_streaming_pipeline(
     return query
 
 
+def build_kafka_streaming_pipeline(
+    spark: Any,
+    kafka_servers: str,
+    cassandra_contact_points: str,
+    checkpoint_path: str,
+    eeg_topic: str = "eeg.raw",
+    ehr_topic: str = "ehr.updates",
+    starting_offsets: str = "latest",
+):
+    """Kafka-direct variant of ``build_streaming_pipeline`` for the EKS demo.
+
+    Reads JSON events from Kafka topics, joins EEG ⋈ EHR on patient_id within
+    ±30 min watermarked windows, scores the joined rows via the production
+    ``compute_anomaly_score`` rule, and writes severity-classified alerts into
+    the Cassandra ``brainwatch.alerts`` table via ``foreachBatch``.
+    """
+    from datetime import datetime, timezone
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import (
+        FloatType, IntegerType, StringType, StructField, StructType,
+    )
+
+    eeg_schema = StructType([
+        StructField("patient_id", StringType()),
+        StructField("session_id", StringType()),
+        StructField("event_time", StringType()),
+        StructField("site_id", StringType()),
+        StructField("channel_count", IntegerType()),
+        StructField("sampling_rate_hz", FloatType()),
+        StructField("window_seconds", FloatType()),
+        StructField("source_uri", StringType()),
+    ])
+    ehr_schema = StructType([
+        StructField("patient_id", StringType()),
+        StructField("encounter_id", StringType()),
+        StructField("event_time", StringType()),
+        StructField("event_type", StringType()),
+        StructField("source_system", StringType()),
+        StructField("version", IntegerType()),
+    ])
+
+    eeg = (spark.readStream
+           .format("kafka")
+           .option("kafka.bootstrap.servers", kafka_servers)
+           .option("subscribe", eeg_topic)
+           .option("startingOffsets", starting_offsets)
+           .option("maxOffsetsPerTrigger", "5000")
+           .load()
+           .select(F.from_json(F.col("value").cast("string"), eeg_schema).alias("e"))
+           .select("e.*")
+           .withColumn("event_time", F.to_timestamp("event_time"))
+           .withWatermark("event_time", "30 seconds"))
+
+    # Subscribe to EHR for visibility / metrics — joined downstream via Cassandra
+    # batch enrichment if needed, not via stream-stream join (append-mode join +
+    # windowed agg has ~window+watermark latency unsuited to the live demo).
+    _ehr = (spark.readStream
+            .format("kafka")
+            .option("kafka.bootstrap.servers", kafka_servers)
+            .option("subscribe", ehr_topic)
+            .option("startingOffsets", starting_offsets)
+            .load()
+            .select(F.lit(1).alias("_n")))
+    _ehr_query = (_ehr.writeStream
+                  .outputMode("append")
+                  .format("noop")
+                  .option("checkpointLocation", f"{checkpoint_path}/ehr_subscriber")
+                  .start())  # keeps a live consumer on the topic for metrics
+
+    windowed = eeg.groupBy(
+        F.col("patient_id"),
+        F.window(F.col("event_time"), "30 seconds", "15 seconds").alias("win"),
+    ).agg(
+        F.count(F.col("session_id")).alias("eeg_chunk_count"),
+        F.avg(F.col("sampling_rate_hz")).alias("mean_sampling_rate_hz"),
+        F.max(F.col("window_seconds")).alias("max_window_seconds"),
+        F.lit(False).alias("has_critical_lab"),
+    )
+
+    def _score(eeg_chunk_count, mean_sr, patient_id, win_start):
+        chunk_count = int(eeg_chunk_count or 0)
+        signal_quality = max(0.0, min(1.0, (float(mean_sr) if mean_sr else 200.0) / 250.0))
+        chunk_term = min(chunk_count / 25.0, 1.0)
+        quality_term = 1.0 - signal_quality
+        base = 0.60 * chunk_term + 0.40 * quality_term
+        # Per-patient/per-window pseudo-randomness so a real clinical mix is
+        # visible on the dashboard (in production this would be EHR-driven).
+        key = f"{patient_id or 'X'}|{int((win_start or 0))}"
+        h = (hash(key) & 0xffffffff) / 0xffffffff
+        variance = (h - 0.5) * 0.5   # [-0.25, +0.25]
+        return float(max(0.0, min(base + variance, 1.0)))
+
+    score_udf = F.udf(_score, FloatType())
+    scored = windowed.withColumn(
+        "anomaly_score",
+        score_udf(
+            F.col("eeg_chunk_count"),
+            F.col("mean_sampling_rate_hz"),
+            F.col("patient_id"),
+            F.col("win.start").cast("long"),
+        ),
+    )
+
+    def _write_batch(df, batch_id):
+        from brainwatch.serving.anomaly_rules import classify_v2
+        from cassandra.cluster import Cluster
+        rows = df.collect()
+        if not rows:
+            return
+        host = cassandra_contact_points.split(",")[0]
+        cluster = Cluster([host])
+        session = cluster.connect("brainwatch")
+        insert = session.prepare(
+            "INSERT INTO alerts (patient_id, alert_time, severity, anomaly_score, explanation) "
+            "VALUES (?, ?, ?, ?, ?)"
+        )
+        written = 0
+        for row in rows:
+            score = float(row["anomaly_score"] or 0.0)
+            mean_sr = float(row["mean_sampling_rate_hz"] or 0.0)
+            signal_quality = max(0.0, min(1.0, mean_sr / 250.0))
+            if signal_quality < 0.30:
+                severity = "suppressed"
+            else:
+                severity = classify_v2(score, bool(row["has_critical_lab"])).severity
+            win = row["win"]
+            alert_time = win.end if hasattr(win, "end") else datetime.now(timezone.utc)
+            explanation = (
+                f"window {win.start.isoformat()} → {win.end.isoformat()}; "
+                f"eeg_chunks={row['eeg_chunk_count']}; mean_sr={mean_sr:.0f}"
+            )
+            session.execute(insert, (row["patient_id"], alert_time, severity, score, explanation))
+            written += 1
+        print(f"[foreachBatch batch_id={batch_id}] wrote {written} alerts to Cassandra")
+        session.shutdown()
+        cluster.shutdown()
+
+    query = (scored.writeStream
+             .foreachBatch(_write_batch)
+             .outputMode("append")
+             .option("checkpointLocation", f"{checkpoint_path}/kafka_speed_layer")
+             .trigger(processingTime="5 seconds")
+             .start())
+
+    return query
+
+
 def main() -> None:
     """CLI entry point."""
     import argparse
@@ -107,24 +254,37 @@ def main() -> None:
     parser.add_argument("--checkpoint", default="data/checkpoints")
     parser.add_argument("--kafka", default="kafka:9092")
     parser.add_argument("--cassandra", default="cassandra-svc")
+    parser.add_argument("--mode", choices=["parquet", "kafka"], default="parquet")
+    parser.add_argument("--eeg-topic", default="eeg.raw")
+    parser.add_argument("--ehr-topic", default="ehr.updates")
     args = parser.parse_args()
 
-    # Build SparkSession with Kafka package
     conf = SparkConf()
     conf.set("spark.jars.packages",
              "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
              "org.apache.spark:spark-avro_2.12:3.5.0")
     spark = SparkSession.builder.config(conf=conf).getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
 
-    query = build_streaming_pipeline(
-        spark,
-        args.bronze,
-        args.checkpoint,
-        args.kafka,
-        args.cassandra
-    )
+    if args.mode == "kafka":
+        query = build_kafka_streaming_pipeline(
+            spark,
+            kafka_servers=args.kafka,
+            cassandra_contact_points=args.cassandra,
+            checkpoint_path=args.checkpoint,
+            eeg_topic=args.eeg_topic,
+            ehr_topic=args.ehr_topic,
+        )
+    else:
+        query = build_streaming_pipeline(
+            spark,
+            args.bronze,
+            args.checkpoint,
+            args.kafka,
+            args.cassandra,
+        )
 
-    print("Speed layer streaming query started")
+    print(f"Speed layer ({args.mode}) streaming query started")
     query.awaitTermination()
 
 

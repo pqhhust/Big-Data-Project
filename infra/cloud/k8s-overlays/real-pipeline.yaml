@@ -1,0 +1,222 @@
+# End-to-end real BrainWatch pipeline on EKS.
+#
+# Components
+# - schema-init Job        — runs Cassandra DDL once
+# - kafka-producer Deploy  — bronze JSONL → Kafka eeg.raw / ehr.updates (continuous)
+# - speed-layer Deploy     — Spark Structured Streaming: Kafka → score → Cassandra
+# - exporter Deploy        — Cassandra → S3 (alerts JSONL + 6 rollups)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cassandra-schema-init
+  namespace: brainwatch
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: cqlsh
+          image: cassandra:4.1
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eux
+              until cqlsh cassandra-0.cassandra-svc.brainwatch.svc.cluster.local -e "DESC KEYSPACES;" >/dev/null 2>&1; do
+                echo "waiting for Cassandra..."; sleep 5
+              done
+              cqlsh cassandra-0.cassandra-svc.brainwatch.svc.cluster.local <<'CQL'
+              CREATE KEYSPACE IF NOT EXISTS brainwatch
+                WITH replication = {'class':'SimpleStrategy','replication_factor':1};
+              CREATE TABLE IF NOT EXISTS brainwatch.alerts (
+                patient_id     text,
+                alert_time     timestamp,
+                severity       text,
+                anomaly_score  float,
+                explanation    text,
+                PRIMARY KEY (patient_id, alert_time)
+              ) WITH CLUSTERING ORDER BY (alert_time DESC);
+              CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
+                patient_id         text PRIMARY KEY,
+                last_alert_time    timestamp,
+                last_severity      text,
+                last_anomaly_score float
+              );
+              CQL
+              echo "schema applied"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-producer
+  namespace: brainwatch
+  labels: {app: kafka-producer}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: kafka-producer}}
+  strategy: {type: Recreate}
+  template:
+    metadata: {labels: {app: kafka-producer}}
+    spec:
+      initContainers:
+        - name: fetch-code
+          image: amazon/aws-cli:2.17.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eux
+              mkdir -p /code/wheels /code/scripts
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /code/wheels/
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /code/scripts/ --recursive
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      containers:
+        - name: producer
+          image: python:3.11-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eux
+              pip install --no-cache-dir kafka-python==2.0.2 /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
+              exec python /code/scripts/kafka_producer_driver.py \
+                   --bootstrap kafka-0.kafka.brainwatch.svc.cluster.local:9092 \
+                   --rate 150
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits:   {cpu: "1",  memory: 1Gi}
+          volumeMounts:
+            - {name: code,   mountPath: /code}
+            - {name: bronze, mountPath: /data/lake/bronze, readOnly: true}
+      volumes:
+        - {name: code,   emptyDir: {}}
+        - {name: bronze, persistentVolumeClaim: {claimName: bronze-pvc, readOnly: true}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: speed-layer
+  namespace: brainwatch
+  labels: {app: speed-layer}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: speed-layer}}
+  strategy: {type: Recreate}
+  template:
+    metadata: {labels: {app: speed-layer}}
+    spec:
+      securityContext:
+        fsGroup: 185
+        runAsUser: 185
+        runAsGroup: 185
+      initContainers:
+        - name: prep-pvcs
+          image: busybox:1.36
+          securityContext: {runAsUser: 0}
+          command: ["sh", "-c", "rm -rf /data/checkpoints/lost+found && mkdir -p /data/checkpoints && chown -R 185:185 /data/checkpoints"]
+          volumeMounts:
+            - {name: checkpoints, mountPath: /data/checkpoints}
+        - name: fetch-code
+          image: amazon/aws-cli:2.17.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eux
+              mkdir -p /code/wheels /code/scripts
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /code/wheels/
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /code/scripts/ --recursive
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      containers:
+        - name: spark
+          image: spark:3.5.5-scala2.12-java17-python3-ubuntu
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euxo pipefail
+              pip install --no-cache-dir --target=/code/site-packages \
+                /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl cassandra-driver==3.29.1
+              export PYTHONPATH="/code/site-packages:${PYTHONPATH:-}"
+              mkdir -p /tmp/.ivy2 /tmp/.spark-warehouse
+              rm -rf /data/checkpoints/kafka_speed_layer /data/checkpoints/ehr_subscriber
+              exec /opt/spark/bin/spark-submit \
+                --master 'local[4]' \
+                --driver-memory 4g \
+                --conf spark.sql.shuffle.partitions=8 \
+                --conf spark.jars.ivy=/tmp/.ivy2 \
+                --conf spark.sql.warehouse.dir=/tmp/.spark-warehouse \
+                --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
+                --py-files /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl \
+                /code/scripts/run_speed_layer_kafka.py
+          env:
+            - {name: CHECKPOINT_PATH, value: /data/checkpoints}
+          resources:
+            requests: {cpu: "1",   memory: 3Gi}
+            limits:   {cpu: "2",   memory: 5Gi}
+          volumeMounts:
+            - {name: code,        mountPath: /code}
+            - {name: checkpoints, mountPath: /data/checkpoints}
+      volumes:
+        - {name: code,        emptyDir: {}}
+        - {name: checkpoints, persistentVolumeClaim: {claimName: checkpoints-pvc}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cassandra-exporter
+  namespace: brainwatch
+  labels: {app: cassandra-exporter}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: cassandra-exporter}}
+  strategy: {type: Recreate}
+  template:
+    metadata: {labels: {app: cassandra-exporter}}
+    spec:
+      initContainers:
+        - name: fetch-code
+          image: amazon/aws-cli:2.17.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eux
+              mkdir -p /code/scripts
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /code/scripts/ --recursive
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      containers:
+        - name: exporter
+          image: python:3.11-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eux
+              pip install --no-cache-dir cassandra-driver==3.29.1 boto3
+              exec python /code/scripts/cassandra_to_s3_exporter.py \
+                   --cassandra cassandra-0.cassandra-svc.brainwatch.svc.cluster.local \
+                   --bucket    brainwatch-dashboard-923884399064 \
+                   --interval  3 \
+                   --limit     5000
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits:   {cpu: 500m, memory: 768Mi}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      volumes:
+        - {name: code, emptyDir: {}}
