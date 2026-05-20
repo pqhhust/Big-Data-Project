@@ -7,14 +7,34 @@ metadata:
   name: brainwatch-batch-bootstrap
   namespace: brainwatch
 spec:
-  backoffLimit: 1
+  backoffLimit: 0
   template:
     metadata:
       labels:
         app: brainwatch-batch
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 185
+        runAsUser: 185
+        runAsGroup: 185
       initContainers:
+        - name: prep-pvcs
+          image: busybox:1.36
+          securityContext: {runAsUser: 0}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eux
+              for d in /data/lake/silver /data/lake/gold /data/checkpoints; do
+                rm -rf "$d/lost+found"
+                mkdir -p "$d"
+                chown -R 185:185 "$d"
+              done
+          volumeMounts:
+            - {name: silver,      mountPath: /data/lake/silver}
+            - {name: gold,        mountPath: /data/lake/gold}
+            - {name: checkpoints, mountPath: /data/checkpoints}
         - name: fetch-code
           image: amazon/aws-cli:2.17.0
           command: ["/bin/sh", "-c"]
@@ -23,8 +43,7 @@ spec:
               set -eux
               mkdir -p /opt/brainwatch/wheels /opt/brainwatch/scripts
               aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /opt/brainwatch/wheels/
-              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts.tar.gz /tmp/scripts.tar.gz
-              tar -xzf /tmp/scripts.tar.gz -C /opt/brainwatch/
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /opt/brainwatch/scripts/ --recursive
               echo "Code fetched."
           env:
             - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
@@ -34,12 +53,14 @@ spec:
             - {name: code, mountPath: /opt/brainwatch}
       containers:
         - name: spark-batch
-          image: apache/spark:3.5.4
+          image: spark:3.5.5-scala2.12-java17-python3-ubuntu
           command: ["/bin/bash", "-c"]
           args:
             - |
               set -euxo pipefail
-              pip install --no-cache-dir /opt/brainwatch/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
+              pip install --no-cache-dir --target=/opt/brainwatch/site-packages \
+                /opt/brainwatch/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
+              export PYTHONPATH="/opt/brainwatch/site-packages:${PYTHONPATH:-}"
               cd /opt/brainwatch
               /opt/spark/bin/spark-submit \
                 --master local[*] \

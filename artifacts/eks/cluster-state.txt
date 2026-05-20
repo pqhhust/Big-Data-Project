@@ -1,0 +1,26 @@
+NAME                                   READY   STATUS      RESTARTS   AGE     IP               NODE                            NOMINATED NODE   READINESS GATES
+pod/brainwatch-batch-bootstrap-qvnrj   0/1     Completed   0          8m57s   192.168.21.151   ip-192-168-21-43.ec2.internal   <none>           <none>
+pod/bronze-seeder                      1/1     Running     0          39m     192.168.16.49    ip-192-168-21-43.ec2.internal   <none>           <none>
+pod/cassandra-0                        1/1     Running     0          28m     192.168.7.149    ip-192-168-21-43.ec2.internal   <none>           <none>
+pod/kafka-0                            1/1     Running     0          23m     192.168.42.86    ip-192-168-43-88.ec2.internal   <none>           <none>
+pod/silver-inspector                   1/1     Running     0          44s     192.168.21.151   ip-192-168-21-43.ec2.internal   <none>           <none>
+
+NAME                    TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)             AGE   SELECTOR
+service/cassandra-svc   ClusterIP   None         <none>        9042/TCP,7000/TCP   28m   app=cassandra
+service/kafka           ClusterIP   None         <none>        9092/TCP            27m   app=kafka
+
+NAME                         READY   AGE   CONTAINERS   IMAGES
+statefulset.apps/cassandra   1/1     28m   cassandra    cassandra:4.1
+statefulset.apps/kafka       1/1     23m   kafka        apache/kafka:3.9.0
+
+NAME                                   STATUS     COMPLETIONS   DURATION   AGE     CONTAINERS    IMAGES                                        SELECTOR
+job.batch/brainwatch-batch-bootstrap   Complete   1/1           7m33s      8m59s   spark-batch   spark:3.5.5-scala2.12-java17-python3-ubuntu   batch.kubernetes.io/controller-uid=e9bcf619-9600-4771-a3bc-2945f01d4daa
+
+NAME                                               STATUS    VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE   VOLUMEMODE
+persistentvolumeclaim/bronze-pvc                   Bound     pvc-8298b508-284d-4528-9c72-ee4411c501a3   20Gi       RWO            gp3            <unset>                 39m   Filesystem
+persistentvolumeclaim/cassandra-data-cassandra-0   Bound     pvc-bc719083-4cd6-49b8-887b-f550006e0592   20Gi       RWO            gp3            <unset>                 28m   Filesystem
+persistentvolumeclaim/cassandra-pvc                Pending                                                                        gp3            <unset>                 39m   Filesystem
+persistentvolumeclaim/checkpoints-pvc              Bound     pvc-7ada3e82-cf44-47c2-898d-c8a992fac9c4   5Gi        RWO            gp3            <unset>                 39m   Filesystem
+persistentvolumeclaim/gold-pvc                     Bound     pvc-76fa741b-d85c-465e-9fa4-79fa8992f7ed   10Gi       RWO            gp3            <unset>                 39m   Filesystem
+persistentvolumeclaim/kafka-data-kafka-0           Bound     pvc-7c8d6ab2-19fc-4d7d-bacb-e707bd6347db   10Gi       RWO            gp3            <unset>                 23m   Filesystem
+persistentvolumeclaim/silver-pvc                   Bound     pvc-513b0dd6-a1fb-4054-8dfc-f4552df3f605   20Gi       RWO            gp3            <unset>                 39m   Filesystem

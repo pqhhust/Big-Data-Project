@@ -414,7 +414,10 @@ Real Parquet round-trips for silver/gold use `tmp_path` and a session-scoped `Sp
 
 ## 10. Results
 
-### 10.1 Pipeline run (synthetic-at-scale demo, measured 2026-05-20)
+### 10.1 Pipeline runs — local + EKS (measured 2026-05-20/21)
+
+**Local lab host (16-core, 24 GiB driver, 256 shuffle partitions):**
+
 
 | Metric | Value |
 |---|---|
@@ -428,8 +431,19 @@ Real Parquet round-trips for silver/gold use `tmp_path` and a session-scoped `Sp
 | **Full batch driver (bronze → silver → gold)** | **47.8 s on 8.2 GiB** — local-mode 16-core, 24 GiB heap, 256 shuffle partitions |
 | Cassandra round-trip (`init_keyspace + write_alerts + query_recent_alerts`) | sub-second |
 
-Full numbers and the `df.explain()` plans are captured in
-`artifacts/demo/generate_run.log` and `artifacts/demo/batch_run.log`.
+**Amazon EKS cluster** (`brainwatch-capstone` · us-east-1 · 2 × t3.xlarge worker nodes · gp3 EBS PVCs):
+
+| Step | Outcome |
+|---|---|
+| `eksctl create cluster` | ~13 min (control plane + node group + 4 CFN stacks) |
+| `kubectl apply -f` (namespace, configmap, storage-class, 5 PVCs, Cassandra, Kafka KRaft, batch Job) | all `Created` cleanly |
+| `kubectl cp` 8.3 GiB bronze tarball into the `bronze-pvc` via a seeder pod | **12 min 12 s** (~11 MiB/s effective lab → AWS upload) |
+| **Cluster batch run** (`spark-submit run_batch.py`, 8 GiB driver, 64 shuffle parts) | **424.2 s** end-to-end (bronze → silver → gold) |
+| Silver zone (EKS PVCs) | 127.4 MiB EEG + 29.9 MiB EHR + 22.5 MiB patient_dim |
+| `gold/patient_features` | 7.8 MiB across 3 `event_date=` partitions |
+| Pods steady-state | `kafka-0`, `cassandra-0`, `bronze-seeder` all `Running`; batch job `Completed` |
+
+Full numbers and the `df.explain()` plans are captured in `artifacts/demo/generate_run.log` (local), `artifacts/demo/batch_run.log` (local), `artifacts/eks/batch-run.log` (cloud), `artifacts/eks/cluster-state.txt`, and `artifacts/eks/data-layout.txt`.
 
 ### 10.2 Demo Dashboard
 

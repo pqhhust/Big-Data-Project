@@ -1,0 +1,44 @@
+179.8M	/data/lake/silver
+7.8M	/data/lake/gold
+
+--- silver/eeg ---
+_SUCCESS
+site_id=I0002
+site_id=I0003
+site_id=S0001
+site_id=S0002
+
+--- silver/eeg/site=I0003 ---
+/data/lake/silver/eeg/site_id=I0003/ingestion_date=2026-05-19/part-00000-05339e8d-b55f-4eda-a72f-a5bb3ab97160.c000.snappy.parquet
+/data/lake/silver/eeg/site_id=I0003/ingestion_date=2026-05-19/part-00001-05339e8d-b55f-4eda-a72f-a5bb3ab97160.c000.snappy.parquet
+/data/lake/silver/eeg/site_id=I0003/ingestion_date=2026-05-19/part-00002-05339e8d-b55f-4eda-a72f-a5bb3ab97160.c000.snappy.parquet
+/data/lake/silver/eeg/site_id=I0003/ingestion_date=2026-05-19/part-00003-05339e8d-b55f-4eda-a72f-a5bb3ab97160.c000.snappy.parquet
+/data/lake/silver/eeg/site_id=I0003/ingestion_date=2026-05-20/part-00000-05339e8d-b55f-4eda-a72f-a5bb3ab97160.c000.snappy.parquet
+
+--- gold ---
+/data/lake/gold:
+patient_features
+
+/data/lake/gold/patient_features:
+_SUCCESS
+event_date=2026-05-19
+event_date=2026-05-20
+event_date=2026-05-21
+
+/data/lake/gold/patient_features/event_date=2026-05-19:
+part-00000-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00001-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00002-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00003-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+
+/data/lake/gold/patient_features/event_date=2026-05-20:
+part-00000-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00001-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00002-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00003-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+
+/data/lake/gold/patient_features/event_date=2026-05-21:
+part-00000-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00001-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00002-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet
+part-00003-62a3bbf2-b2da-4982-bc72-22c6ce75af1e.c000.snappy.parquet

@@ -1,0 +1,185 @@
+Name:             brainwatch-batch-bootstrap-qvnrj
+Namespace:        brainwatch
+Priority:         0
+Service Account:  default
+Node:             ip-192-168-21-43.ec2.internal/192.168.21.43
+Start Time:       Thu, 21 May 2026 00:07:50 +0700
+Labels:           app=brainwatch-batch
+                  batch.kubernetes.io/controller-uid=e9bcf619-9600-4771-a3bc-2945f01d4daa
+                  batch.kubernetes.io/job-name=brainwatch-batch-bootstrap
+                  controller-uid=e9bcf619-9600-4771-a3bc-2945f01d4daa
+                  job-name=brainwatch-batch-bootstrap
+Annotations:      <none>
+Status:           Succeeded
+IP:               192.168.21.151
+IPs:
+  IP:           192.168.21.151
+Controlled By:  Job/brainwatch-batch-bootstrap
+Init Containers:
+  prep-pvcs:
+    Container ID:  containerd://efeefa854aa6e5b434d60305acc3de53fee0d95622ff68931781f2c72ccbf7ad
+    Image:         busybox:1.36
+    Image ID:      docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      sh
+      -c
+    Args:
+      set -eux
+      for d in /data/lake/silver /data/lake/gold /data/checkpoints; do
+        rm -rf "$d/lost+found"
+        mkdir -p "$d"
+        chown -R 185:185 "$d"
+      done
+      
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Thu, 21 May 2026 00:07:56 +0700
+      Finished:     Thu, 21 May 2026 00:07:56 +0700
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /data/checkpoints from checkpoints (rw)
+      /data/lake/gold from gold (rw)
+      /data/lake/silver from silver (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-lj78b (ro)
+  fetch-code:
+    Container ID:  containerd://c1a669c8b89e2cb9f67b1cc0ffbe6ba1936b38f3ea5f3980e78c9f6cf1614b4a
+    Image:         amazon/aws-cli:2.17.0
+    Image ID:      docker.io/amazon/aws-cli@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      /bin/sh
+      -c
+    Args:
+      set -eux
+      mkdir -p /opt/brainwatch/wheels /opt/brainwatch/scripts
+      aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /opt/brainwatch/wheels/
+      aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /opt/brainwatch/scripts/ --recursive
+      echo "Code fetched."
+      
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Thu, 21 May 2026 00:07:56 +0700
+      Finished:     Thu, 21 May 2026 00:08:00 +0700
+    Ready:          True
+    Restart Count:  0
+    Environment:
+      AWS_ACCESS_KEY_ID:      <set to the key 'access-key-id' in secret 'aws-credentials'>      Optional: false
+      AWS_SECRET_ACCESS_KEY:  <set to the key 'secret-access-key' in secret 'aws-credentials'>  Optional: false
+      AWS_DEFAULT_REGION:     us-east-1
+    Mounts:
+      /opt/brainwatch from code (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-lj78b (ro)
+Containers:
+  spark-batch:
+    Container ID:  containerd://4be63814b9cc37c862cbcd14e9dd2eec9c6ecd543a745b41801b488695acf93c
+    Image:         spark:3.5.5-scala2.12-java17-python3-ubuntu
+    Image ID:      docker.io/library/spark@sha256:d0c02f74817a50a5954bfa10f345fb8491c5eefdc6650e441d201504b8cdd62b
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      /bin/bash
+      -c
+    Args:
+      set -euxo pipefail
+      pip install --no-cache-dir --target=/opt/brainwatch/site-packages \
+        /opt/brainwatch/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
+      export PYTHONPATH="/opt/brainwatch/site-packages:${PYTHONPATH:-}"
+      cd /opt/brainwatch
+      /opt/spark/bin/spark-submit \
+        --master local[*] \
+        --driver-memory 8g \
+        --conf spark.driver.maxResultSize=2g \
+        --conf spark.sql.shuffle.partitions=64 \
+        --conf spark.sql.autoBroadcastJoinThreshold=52428800 \
+        --conf spark.sql.adaptive.enabled=true \
+        scripts/run_batch.py \
+          --bronze /data/lake/bronze \
+          --silver /data/lake/silver \
+          --gold   /data/lake/gold \
+          --master 'local[*]' \
+          --driver-memory 8g \
+          --shuffle-partitions 64
+      
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Thu, 21 May 2026 00:08:01 +0700
+      Finished:     Thu, 21 May 2026 00:15:20 +0700
+    Ready:          False
+    Restart Count:  0
+    Limits:
+      cpu:     4
+      memory:  12Gi
+    Requests:
+      cpu:        2
+      memory:     10Gi
+    Environment:  <none>
+    Mounts:
+      /data/checkpoints from checkpoints (rw)
+      /data/lake/bronze from bronze (rw)
+      /data/lake/gold from gold (rw)
+      /data/lake/silver from silver (rw)
+      /opt/brainwatch from code (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-lj78b (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   False 
+  Initialized                 True 
+  Ready                       False 
+  ContainersReady             False 
+  PodScheduled                True 
+Volumes:
+  code:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  bronze:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  bronze-pvc
+    ReadOnly:   false
+  silver:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  silver-pvc
+    ReadOnly:   false
+  gold:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  gold-pvc
+    ReadOnly:   false
+  checkpoints:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  checkpoints-pvc
+    ReadOnly:   false
+  kube-api-access-lj78b:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type    Reason                  Age    From                     Message
+  ----    ------                  ----   ----                     -------
+  Normal  Scheduled               9m2s   default-scheduler        Successfully assigned brainwatch/brainwatch-batch-bootstrap-qvnrj to ip-192-168-21-43.ec2.internal
+  Normal  SuccessfulAttachVolume  8m58s  attachdetach-controller  AttachVolume.Attach succeeded for volume "pvc-7ada3e82-cf44-47c2-898d-c8a992fac9c4"
+  Normal  SuccessfulAttachVolume  8m58s  attachdetach-controller  AttachVolume.Attach succeeded for volume "pvc-76fa741b-d85c-465e-9fa4-79fa8992f7ed"
+  Normal  SuccessfulAttachVolume  8m58s  attachdetach-controller  AttachVolume.Attach succeeded for volume "pvc-513b0dd6-a1fb-4054-8dfc-f4552df3f605"
+  Normal  Pulling                 8m57s  kubelet                  Pulling image "busybox:1.36"
+  Normal  Pulled                  8m56s  kubelet                  Successfully pulled image "busybox:1.36" in 579ms (579ms including waiting). Image size: 2217006 bytes.
+  Normal  Created                 8m56s  kubelet                  Created container: prep-pvcs
+  Normal  Started                 8m56s  kubelet                  Started container prep-pvcs
+  Normal  Pulled                  8m56s  kubelet                  Container image "amazon/aws-cli:2.17.0" already present on machine
+  Normal  Created                 8m56s  kubelet                  Created container: fetch-code
+  Normal  Started                 8m56s  kubelet                  Started container fetch-code
+  Normal  Pulled                  8m52s  kubelet                  Container image "spark:3.5.5-scala2.12-java17-python3-ubuntu" already present on machine
+  Normal  Created                 8m52s  kubelet                  Created container: spark-batch
+  Normal  Started                 8m51s  kubelet                  Started container spark-batch
