@@ -1,8 +1,4 @@
-"""Bronze-zone writer with deduplication and DLQ routing.
-
-Owner: **Kim-Hung**.
-Depends on: ``brainwatch.contracts.events`` (already exists), and
-``brainwatch.ingestion.dead_letter.DeadLetterQueue`` (Dat).
+"""Bronze-zone writer with SHA256 deduplication and DLQ routing.
 
 Bronze layout on disk::
 
@@ -20,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -94,8 +90,7 @@ class BronzeWriter:
             return False
         self._seen.add(fingerprint)
 
-        # 3. Compute partition path
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         date_part = f"date={now.strftime('%Y-%m-%d')}"
         if partition_key:
             partition_dir = self._bronze_root / stream / f"site={partition_key}" / date_part

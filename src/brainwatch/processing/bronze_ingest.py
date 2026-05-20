@@ -1,11 +1,7 @@
-"""Spark Structured Streaming consumer: Kafka -> Bronze zone.
+"""Spark Structured Streaming consumer: Kafka → Bronze zone.
 
-Owner: **Quang-Hung** (lead).
-Depends on: ``brainwatch.contracts.events`` schemas and pyspark 3.5.
-
-Hard contract: every PySpark import in this file MUST happen inside the
-function bodies. The module has to be importable without ``pyspark``
-installed — that's how the test suite stays green for everyone else.
+PySpark imports MUST stay inside function bodies so the module is
+importable without pyspark installed.
 """
 from __future__ import annotations
 

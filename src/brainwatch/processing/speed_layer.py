@@ -1,12 +1,9 @@
 """Speed layer — real-time stream-stream join + alert generation.
 
-Owner: **Quang-Hung** (lead).
-Depends on: Kim-Quan's anomaly rules v2 + alert publisher.
-
-Reads bronze Parquet as **streaming** sources (NOT Kafka — bronze is already
-authoritative and avoids re-parsing JSON), joins EEG + EHR with watermarks,
-runs anomaly scoring, writes alerts to Cassandra (via Kim-Quan's publisher)
-and to the ``alerts.anomaly`` Kafka topic.
+Reads bronze Parquet as streaming sources (bronze is already authoritative,
+which avoids re-parsing JSON from Kafka), joins EEG + EHR with watermarks,
+runs anomaly scoring, then dual-sinks alerts into Cassandra and the
+``alerts.anomaly`` Kafka topic.
 """
 from __future__ import annotations
 
@@ -23,31 +20,14 @@ def build_streaming_pipeline(
 ):
     """Wire up the full speed-layer query."""
     from pyspark.sql import functions as F
-    from pyspark.sql.types import FloatType, StringType, StructField, StructType, TimestampType
+    from pyspark.sql.types import FloatType
     from brainwatch.serving.anomaly_rules import compute_anomaly_score, classify_v2
     from brainwatch.serving.alert_publisher import publish_alerts
-
-    # Stage 1 — read bronze as streaming sources
-    eeg_schema = StructType([
-        StructField("patient_id", StringType(), False),
-        StructField("session_id", StringType(), False),
-        StructField("event_time", TimestampType(), False),
-        StructField("site_id", StringType(), False),
-        StructField("channel_count", StructField("sampling_rate_hz", FloatType()), True),
-        StructField("window_seconds", FloatType(), True)
-    ])
 
     eeg_df = (spark.readStream
               .format("parquet")
               .load(f"{bronze_path}/eeg")
               .withWatermark("event_time", "10 minutes"))
-
-    ehr_schema = StructType([
-        StructField("patient_id", StringType(), False),
-        StructField("encounter_id", StringType(), False),
-        StructField("event_time", TimestampType(), False),
-        StructField("event_type", StringType(), False)
-    ])
 
     ehr_df = (spark.readStream
               .format("parquet")

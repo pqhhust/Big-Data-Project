@@ -1,0 +1,16 @@
+[ 21.4s] eeg=  565,504 ehr=  434,496 bronze=0.22 GiB clones=33
+[ 94.7s] eeg=2,550,912 ehr=1,949,088 bronze=0.99 GiB clones=146
+[320.3s] eeg=8,644,612 ehr=6,605,388 bronze=3.35 GiB clones=495
+[491.5s] eeg=13,181,076 ehr=10,068,924 bronze=5.11 GiB clones=754
+[496.5s] eeg=13,323,208 ehr=10,176,792 bronze=5.17 GiB clones=762
+[664.1s] eeg=17,857,644 ehr=13,642,356 bronze=6.93 GiB clones=1022
+[789.5s] eeg=21,118,196 ehr=16,131,804 bronze=8.20 GiB clones=1208
+{
+  "eeg_events": 21118196,
+  "ehr_events": 16131804,
+  "bronze_bytes": 8805747131,
+  "bronze_gib": 8.201,
+  "clones": 1209,
+  "elapsed_seconds": 789.5,
+  "events_per_second": 47182.1
+}

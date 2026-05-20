@@ -69,13 +69,16 @@ def main() -> None:
     )
     print(f"EHR stats: {ehr_stats}")
 
-    # 3. JSON summary
+    # 3. JSON summary — flat keys consumed by scripts/end_to_end_demo.py,
+    # plus the original nested stats for human/log readers.
     summary = {
+        "eeg_published": int(eeg_stats.get("sent", 0)),
+        "ehr_published": int(ehr_stats.get("sent", 0)),
         "eeg": eeg_stats,
         "ehr": ehr_stats,
-        "fallback_file": fallback
+        "fallback_file": fallback,
     }
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary))
 
 
 if __name__ == "__main__":

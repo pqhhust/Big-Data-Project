@@ -1,7 +1,6 @@
 """Dual-sink alert publisher: Cassandra (durable) + Kafka topic (fan-out).
 
-Owner: **Kim-Quan**.
-Plugged into Quang-Hung's speed layer via ``writeStream.foreachBatch(...)``.
+Plugged into the speed layer via ``writeStream.foreachBatch(...)``.
 """
 from __future__ import annotations
 

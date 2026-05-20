@@ -1,11 +1,7 @@
 """EEG metadata-to-event publisher.
 
-Owner: **Kim-Quan**.
-Depends on: Kim-Hung's ``kafka_helpers.get_producer``, and the
-canonical ``EEGChunkEvent`` schema in ``brainwatch.contracts.events``.
-
-Reads a download manifest produced by ``scripts/download_eeg_ehr.py`` (Trang)
-and publishes ``EEGChunkEvent`` messages to the ``eeg.raw`` Kafka topic.
+Reads a download manifest produced by ``scripts/download_eeg_ehr.py`` and
+publishes ``EEGChunkEvent`` messages to the ``eeg.raw`` Kafka topic.
 """
 from __future__ import annotations
 

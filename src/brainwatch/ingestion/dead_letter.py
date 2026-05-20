@@ -1,8 +1,7 @@
 """Dead-letter queue for events that fail validation or processing.
 
-Owner: **Dat**.
-Used by: Kim-Hung's ``BronzeWriter``, Kim-Hung's ``download_subset`` (on S3
-failures), and possibly Quang-Hung's Spark stream (parallel DLQ topic).
+Used by the bronze writer (validation failures) and the S3 download loop
+(transfer failures). Appends one JSONL envelope per failed payload.
 """
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ class DeadLetterQueue:
             "reason": reason,
             "original_payload": payload
         }
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         file_path = self._output_dir / f"dead_letter_{today}.jsonl"
         with file_path.open("a") as f:
             f.write(json.dumps(envelope, default=str) + "\n")

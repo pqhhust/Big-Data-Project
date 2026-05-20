@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-# BrainWatch — teardown script.
+# BrainWatch teardown — reverse of deploy.sh.
 #
-# Owner: Dat.
-#
-# Reverse order of deploy.sh. ALWAYS prompt before deleting PVCs — losing
-# the bronze zone means re-running the whole pipeline.
-#
-# Usage:
-#   bash infra/k8s/teardown.sh                # tears down workloads, KEEPS PVCs
-#   bash infra/k8s/teardown.sh --delete-pvcs  # also drops persistent data (asks twice)
-
+#   bash infra/k8s/teardown.sh                # remove workloads, KEEP PVCs
+#   bash infra/k8s/teardown.sh --delete-pvcs  # also drop persistent data (double-prompts)
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-brainwatch}"
@@ -18,25 +11,11 @@ if [ "${1:-}" = "--delete-pvcs" ]; then
   DELETE_PVCS=true
 fi
 
-# Dat: implement.  Suggested order:
-#
-#   1. spark-batch-cronjob.yaml
-#   2. spark-streaming-deployment.yaml
-#   3. cassandra-statefulset.yaml
-#   4. kafka-statefulset.yaml
-#   5. zookeeper-deployment.yaml (if applicable)
-#   6. configmap.yaml
-#   7. (only if --delete-pvcs) persistent-volumes.yaml
-#      → confirm twice with `read -p` before deleting.
-#   8. namespace.yaml (this also nukes everything inside, but explicit is better)
-#
-# Use `kubectl delete -f <file> --ignore-not-found` so reruns are safe.
-
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 delete() {
   local manifest="$DIR/$1"
-  echo ">>> Deleting $1 ..."
+  echo ">>> Deleting $1"
   kubectl delete -f "$manifest" --ignore-not-found
 }
 
@@ -44,35 +23,34 @@ echo "========================================"
 echo " BrainWatch teardown — namespace: $NAMESPACE"
 echo "========================================"
 
-# Ngược chiều deploy: xóa Spark trước, Cassandra sau
 delete spark-batch-cronjob.yaml
 delete spark-streaming-deployment.yaml
 delete cassandra-statefulset.yaml
+delete kafka-statefulset.yaml
+delete zookeeper-deployment.yaml
 delete configmap.yaml
 
 if [ "$DELETE_PVCS" = "true" ]; then
   echo ""
-  echo "!!! CẢNH BÁO: Sắp xóa toàn bộ persistent data (bronze/silver/gold) !!!"
-  read -rp "Xác nhận lần 1 — gõ 'yes' để tiếp tục: " confirm1
+  echo "!!! WARNING: about to delete all persistent data (bronze/silver/gold) !!!"
+  read -rp "Confirm 1/2 — type 'yes' to continue: " confirm1
   if [ "$confirm1" != "yes" ]; then
-    echo "Hủy. PVCs được giữ lại."
+    echo "Cancelled. PVCs preserved."
     exit 0
   fi
-  read -rp "Xác nhận lần 2 — gõ 'DELETE' để xóa vĩnh viễn: " confirm2
+  read -rp "Confirm 2/2 — type 'DELETE' to permanently remove: " confirm2
   if [ "$confirm2" != "DELETE" ]; then
-    echo "Hủy. PVCs được giữ lại."
+    echo "Cancelled. PVCs preserved."
     exit 0
   fi
   delete persistent-volumes.yaml
-  echo "PVCs đã xóa."
+  echo "PVCs deleted."
 else
   echo ""
-  echo "(PVCs được giữ lại. Dùng --delete-pvcs để xóa data.)"
+  echo "(PVCs preserved. Use --delete-pvcs to remove data.)"
 fi
 
-# Namespace xóa cuối cùng
 delete namespace.yaml
 
 echo ""
-echo "Teardown hoàn tất."
-
+echo "Teardown complete."

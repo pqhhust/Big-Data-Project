@@ -1,74 +1,141 @@
 """Bronze → Silver Spark batch jobs.
 
-Owner: **Kim-Hung**.
-Reads partitioned Parquet from ``data/lake/bronze/`` and writes deduplicated /
-quality-flagged Parquet to ``data/lake/silver/``.
+Reads partitioned Parquet/JSONL from ``data/lake/bronze/`` and writes
+deduplicated, quality-flagged Parquet to ``data/lake/silver/``.
 
-PySpark imports MUST be deferred so this module is importable without spark.
+PySpark imports are deferred so this module is importable without Spark.
 """
 from __future__ import annotations
 
+import argparse
+import hashlib
 from typing import Any
 
 
-def build_eeg_silver(spark: Any, bronze_path: str, silver_path: str) -> None:
-    """Bronze EEG → Silver EEG.
+_BRONZE_EEG_RELATIVE = "eeg"
+_BRONZE_EHR_RELATIVE = "ehr"
 
-    Kim-Hung: implement.
-      1. ``spark.read.parquet(f"{bronze_path}/eeg")``
-      2. dedup on ``(patient_id, session_id, event_time)`` using
-         ``dropDuplicates([...])``.
-      3. drop rows where ``sampling_rate_hz <= 0 or sampling_rate_hz > 1000``.
-      4. add ``quality_flag`` column:
-            - ``"LOW_SR"`` when sampling_rate_hz < 100
-            - ``"SHORT_WINDOW"`` when window_seconds < 5
-            - ``"OK"`` otherwise
-         (use ``when().otherwise()`` chains).
-      5. write Parquet to ``{silver_path}/eeg``, partition by
-         ``site_id, ingestion_date``, mode ``overwrite``.
-      6. coalesce to keep file count reasonable (target 64–256 MB/file).
+
+def _read_bronze(spark: Any, path: str):
+    """Read bronze files transparently — JSONL produced by ``BronzeWriter``
+    or Parquet produced by the Structured Streaming sink.
+
+    The format is detected by sniffing the first matching file via Python
+    ``os.walk`` at the driver (cheap, deterministic, single-machine).
     """
-    # Kim-Hung: code the EEG silver builder here.
-    pass
+    import os as _os
+
+    sniff_ext = None
+    for dirpath, _, filenames in _os.walk(path):
+        for fn in filenames:
+            if fn.endswith(".jsonl") or fn.endswith(".json"):
+                sniff_ext = "json"
+                break
+            if fn.endswith(".parquet"):
+                sniff_ext = "parquet"
+                break
+        if sniff_ext is not None:
+            break
+
+    if sniff_ext == "json":
+        return (
+            spark.read
+                 .option("recursiveFileLookup", "true")
+                 .option("pathGlobFilter", "*.jsonl")
+                 .json(path)
+        )
+    return spark.read.parquet(path)
+
+
+def build_eeg_silver(spark: Any, bronze_path: str, silver_path: str) -> None:
+    """Bronze EEG → Silver EEG: dedup + quality flag + bad-row filter."""
+    from pyspark.sql import functions as F
+
+    df = _read_bronze(spark, f"{bronze_path}/{_BRONZE_EEG_RELATIVE}")
+    df = df.dropDuplicates(["patient_id", "session_id", "event_time"])
+    df = df.filter((F.col("sampling_rate_hz") > 0) & (F.col("sampling_rate_hz") <= 1000))
+    df = df.withColumn(
+        "quality_flag",
+        F.when(F.col("sampling_rate_hz") < 100, F.lit("LOW_SR"))
+         .when(F.col("window_seconds") < 5, F.lit("SHORT_WINDOW"))
+         .otherwise(F.lit("OK")),
+    )
+    if "event_time" in df.columns:
+        df = df.withColumn("ingestion_date", F.to_date("event_time"))
+    (
+        df.coalesce(4)
+          .write.mode("overwrite")
+          .partitionBy("site_id", "ingestion_date")
+          .parquet(f"{silver_path}/eeg")
+    )
 
 
 def build_ehr_silver(spark: Any, bronze_path: str, silver_path: str) -> None:
-    """Bronze EHR → Silver EHR (latest version per encounter).
+    """Bronze EHR → Silver EHR: latest version per (patient_id, encounter_id)."""
+    from pyspark.sql import functions as F
+    from pyspark.sql.window import Window
 
-    Kim-Hung: implement.
-      1. read ``{bronze_path}/ehr``.
-      2. window: ``Window.partitionBy("patient_id", "encounter_id")
-         .orderBy(F.col("version").desc())``.
-      3. ``df.withColumn("rn", row_number().over(window)).filter("rn = 1")``.
-      4. drop the ``rn`` helper column.
-      5. write Parquet to ``{silver_path}/ehr`` partitioned by
-         ``ingestion_date``, mode ``overwrite``.
-    """
-    # Kim-Hung: code the EHR silver builder here.
-    pass
+    df = _read_bronze(spark, f"{bronze_path}/{_BRONZE_EHR_RELATIVE}")
+    if "version" not in df.columns:
+        df = df.withColumn("version", F.lit(1))
+    window = Window.partitionBy("patient_id", "encounter_id").orderBy(F.col("version").desc())
+    latest = (
+        df.withColumn("rn", F.row_number().over(window))
+          .filter(F.col("rn") == 1)
+          .drop("rn")
+    )
+    if "ingestion_date" not in latest.columns and "event_time" in latest.columns:
+        latest = latest.withColumn("ingestion_date", F.to_date("event_time"))
+    (
+        latest.coalesce(2)
+              .write.mode("overwrite")
+              .partitionBy("ingestion_date")
+              .parquet(f"{silver_path}/ehr")
+    )
 
 
 def build_patient_dim(spark: Any, silver_path: str) -> None:
-    """Build a small patient dimension table from the union of EEG + EHR.
+    """Patient dimension table — small enough for broadcast joins downstream."""
+    from pyspark.sql import functions as F
 
-    Kim-Hung: implement.
-      1. read ``{silver_path}/eeg`` and ``{silver_path}/ehr``.
-      2. union ``select("patient_id")`` from both, then ``distinct()``.
-      3. add stable ``patient_key`` (sha1 of patient_id, first 12 hex chars).
-      4. write to ``{silver_path}/_dim/patient`` (small enough for broadcast).
-    """
-    # Kim-Hung: code the patient dim builder here.
-    pass
+    eeg_patients = spark.read.parquet(f"{silver_path}/eeg").select("patient_id")
+    ehr_patients = spark.read.parquet(f"{silver_path}/ehr").select("patient_id")
+    patients = eeg_patients.union(ehr_patients).distinct()
+
+    @F.udf("string")
+    def _patient_key(pid: str) -> str:
+        if pid is None:
+            return None
+        return hashlib.sha1(pid.encode("utf-8")).hexdigest()[:12]
+
+    patients = patients.withColumn("patient_key", _patient_key(F.col("patient_id")))
+    (
+        patients.coalesce(1)
+                .write.mode("overwrite")
+                .parquet(f"{silver_path}/_dim/patient")
+    )
 
 
 def main() -> None:
-    """CLI entry: ``python -m brainwatch.processing.silver_layer
-    --bronze data/lake/bronze --silver data/lake/silver``.
+    """CLI: ``python -m brainwatch.processing.silver_layer --bronze ... --silver ...``."""
+    from pyspark.sql import SparkSession
 
-    Kim-Hung: argparse, build SparkSession, call the three builders in order.
-    """
-    # Kim-Hung: code the main entry here.
-    pass
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bronze", default="data/lake/bronze")
+    parser.add_argument("--silver", default="data/lake/silver")
+    args = parser.parse_args()
+
+    spark = (
+        SparkSession.builder
+        .appName("brainwatch-silver")
+        .config("spark.sql.shuffle.partitions", "8")
+        .getOrCreate()
+    )
+    spark.sparkContext.setLogLevel("WARN")
+
+    build_eeg_silver(spark, args.bronze, args.silver)
+    build_ehr_silver(spark, args.bronze, args.silver)
+    build_patient_dim(spark, args.silver)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,6 @@
 """Cassandra serving sink — keyspace init, alert insert, patient state upsert.
 
-Owner: **Kim-Quan**.
-
-CQL schema (apply via :func:`init_keyspace`)::
+CQL schema (applied by :func:`init_keyspace`)::
 
     CREATE KEYSPACE IF NOT EXISTS brainwatch
         WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
