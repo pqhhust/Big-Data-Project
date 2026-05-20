@@ -1,0 +1,76 @@
+# One-shot Spark batch Job for the EKS demo — bronze -> silver -> gold.
+# Uses stock apache/spark:3.5.4 + an InitContainer that pip-installs the
+# brainwatch wheel and unpacks scripts.tar.gz from S3 (no custom image build).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: brainwatch-batch-bootstrap
+  namespace: brainwatch
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: brainwatch-batch
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: fetch-code
+          image: amazon/aws-cli:2.17.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eux
+              mkdir -p /opt/brainwatch/wheels /opt/brainwatch/scripts
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /opt/brainwatch/wheels/
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts.tar.gz /tmp/scripts.tar.gz
+              tar -xzf /tmp/scripts.tar.gz -C /opt/brainwatch/
+              echo "Code fetched."
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          volumeMounts:
+            - {name: code, mountPath: /opt/brainwatch}
+      containers:
+        - name: spark-batch
+          image: apache/spark:3.5.4
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euxo pipefail
+              pip install --no-cache-dir /opt/brainwatch/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
+              cd /opt/brainwatch
+              /opt/spark/bin/spark-submit \
+                --master local[*] \
+                --driver-memory 8g \
+                --conf spark.driver.maxResultSize=2g \
+                --conf spark.sql.shuffle.partitions=64 \
+                --conf spark.sql.autoBroadcastJoinThreshold=52428800 \
+                --conf spark.sql.adaptive.enabled=true \
+                scripts/run_batch.py \
+                  --bronze /data/lake/bronze \
+                  --silver /data/lake/silver \
+                  --gold   /data/lake/gold \
+                  --master 'local[*]' \
+                  --driver-memory 8g \
+                  --shuffle-partitions 64
+          resources:
+            requests:
+              cpu: "2"
+              memory: 10Gi
+            limits:
+              cpu: "4"
+              memory: 12Gi
+          volumeMounts:
+            - {name: code,        mountPath: /opt/brainwatch}
+            - {name: bronze,      mountPath: /data/lake/bronze}
+            - {name: silver,      mountPath: /data/lake/silver}
+            - {name: gold,        mountPath: /data/lake/gold}
+            - {name: checkpoints, mountPath: /data/checkpoints}
+      volumes:
+        - {name: code,        emptyDir: {}}
+        - {name: bronze,      persistentVolumeClaim: {claimName: bronze-pvc}}
+        - {name: silver,      persistentVolumeClaim: {claimName: silver-pvc}}
+        - {name: gold,        persistentVolumeClaim: {claimName: gold-pvc}}
+        - {name: checkpoints, persistentVolumeClaim: {claimName: checkpoints-pvc}}

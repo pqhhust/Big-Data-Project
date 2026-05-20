@@ -1,0 +1,17 @@
+# gp3 StorageClass for EKS (faster + cheaper than gp2).
+# Uses the EBS CSI driver bundled with EKS managed node groups.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+  iops: "3000"
+  throughput: "125"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

@@ -1,0 +1,19 @@
+# Long-lived pod that mounts the bronze PVC so we can `kubectl cp` the
+# locally-generated 8.2 GiB bronze zone into the cluster from outside.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bronze-seeder
+  namespace: brainwatch
+  labels:
+    app: bronze-seeder
+spec:
+  restartPolicy: Never
+  containers:
+    - name: seeder
+      image: alpine:3.20
+      command: ["sh", "-c", "echo 'seeder ready'; sleep 86400"]
+      volumeMounts:
+        - {name: bronze, mountPath: /data/lake/bronze}
+  volumes:
+    - {name: bronze, persistentVolumeClaim: {claimName: bronze-pvc}}

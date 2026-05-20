@@ -4,6 +4,10 @@ __pycache__/
 .mypy_cache/
 .venv/
 .javaenv/
+dist/
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
 *.pyc
 *.pyo
 *.pyd
