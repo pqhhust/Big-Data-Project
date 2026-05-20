@@ -1,0 +1,5 @@
+[
+  {"zone": "Bronze", "size_mib": 8396.8, "rows": 37250000, "format": "JSONL"},
+  {"zone": "Silver", "size_mib":  179.8, "rows": 38422620, "format": "Parquet+Snappy"},
+  {"zone": "Gold",   "size_mib":    9.3, "rows":  1195332, "format": "Parquet+Snappy"}
+]

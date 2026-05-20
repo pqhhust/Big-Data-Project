@@ -1,0 +1,9 @@
+[
+  {"stage": "Ingest → Kafka",        "owner": "Ingestion",  "duration_s": 0,    "input_gib": 8.2,   "output_gib": 8.2,   "rows": 37250000, "ratio": 1.00},
+  {"stage": "Bronze (JSONL)",         "owner": "Streaming",  "duration_s": 5,    "input_gib": 8.2,   "output_gib": 8.2,   "rows": 37250000, "ratio": 1.00},
+  {"stage": "Silver EEG (dedup)",     "owner": "Batch",      "duration_s": 90,   "input_gib": 4.5,   "output_gib": 0.124, "rows": 21118196, "ratio": 36.29},
+  {"stage": "Silver EHR (row_number)","owner": "Batch",      "duration_s": 40,   "input_gib": 3.8,   "output_gib": 0.029, "rows": 16131804, "ratio": 131.03},
+  {"stage": "Patient dim",            "owner": "Batch",      "duration_s": 30,   "input_gib": 0.15,  "output_gib": 0.022, "rows": 1086372,  "ratio": 6.82},
+  {"stage": "Gold patient_features",  "owner": "Batch",      "duration_s": 254,  "input_gib": 0.175, "output_gib": 0.0091,"rows": 1195332,  "ratio": 19.23},
+  {"stage": "Alerts (foreachBatch)",  "owner": "Speed",      "duration_s": 5,    "input_gib": 0.0091,"output_gib": 0.0001,"rows": 5000,     "ratio": 91.00}
+]

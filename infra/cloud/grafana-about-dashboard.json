@@ -1,0 +1,64 @@
+{
+  "title": "BrainWatch · Architecture & Lessons",
+  "uid": "brainwatch-about",
+  "tags": ["brainwatch", "about"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-1h", "to": "now"},
+  "editable": true,
+  "style": "dark",
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "text", "title": "",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 4},
+      "options": {
+        "mode": "html",
+        "content": "<div style='padding:14px 20px;background:linear-gradient(135deg,#0f1726 0%,#1d2b4a 50%,#2c3e72 100%);border-radius:8px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:26px;font-weight:800;letter-spacing:-0.02em;'>BrainWatch</div><div style='color:#9fb1cc;font-size:14px;margin-top:4px;'>Lambda-architecture big-data platform for real-time EEG anomaly detection with EHR enrichment.</div><div style='color:#6b7c97;font-size:12px;margin-top:8px;'>IT4043E · HUST SOICT · Spring 2026 · Team: Quang-Hung, Kim-Hung, Kim-Quan, Dat, Trang · <a href='https://github.com/pqhhust/Big-Data-Project' style='color:#5794F2;text-decoration:none;'>github.com/pqhhust/Big-Data-Project</a></div></div>"
+      }
+    },
+    {
+      "id": 10, "type": "text", "title": "Problem & scope",
+      "gridPos": {"x": 0, "y": 4, "w": 8, "h": 11},
+      "options": {
+        "mode": "markdown",
+        "content": "### Problem\nHospital-scale neuro-ICU EEG streams (~70 MB / hour / patient) combined with asynchronous EHR updates (vitals, labs, meds) — a nurse can't watch 50 EEG streams in real time.\n\n### Why big data\n| V | BrainWatch |\n|---|---|\n| Volume | 4 TB / month / 50-bed unit |\n| Velocity | continuous 10 s windowed chunks |\n| Variety | EDF binaries + JSON EHR |\n| Veracity | dedup, versioned encounters, late data |\n| Value | clinician-actionable alerts |\n\n### In scope\n- End-to-end Lambda pipeline (ingest → bronze → silver → gold + streaming alerts)\n- Real-time anomaly scoring (`compute_anomaly_score` + `classify_v2`)\n- Kubernetes deployment on **EKS** with Cassandra + Kafka KRaft\n- Synthetic-at-scale demo (≥ 8 GiB bronze)\n\n### Out of scope\nFederated learning · deep-learning scoring · GPU EEG decoding · clinician-facing UI (we ship Matplotlib + Grafana)."
+      }
+    },
+    {
+      "id": 11, "type": "text", "title": "Architecture",
+      "gridPos": {"x": 8, "y": 4, "w": 16, "h": 11},
+      "options": {
+        "mode": "html",
+        "content": "<pre style='font-family:JetBrains Mono,monospace;font-size:11.5px;line-height:1.45;color:#cdd6e0;background:#0f1726;padding:18px;border-radius:6px;overflow:auto;'>┌─────────── INGESTION ──────────────┐    ┌────────── PROCESSING ──────────┐    ┌───────── SERVING ────────┐\n│                                    │    │                                │    │                          │\n│  EEG (BDSP S3) ──► eeg_producer ──┐│    │  Spark Structured Streaming    │    │   Cassandra (alerts +     │\n│                                   ├┼───►│   Kafka → Bronze JSONL          │    │   patient_state)          │\n│  EHR (synth) ────► ehr_normalizer─┘│    │   SHA-256 dedup, DLQ           │◄──►│                          │\n│                                    │    │              │                  │    │   Kafka topic             │\n│       Kafka (KRaft, eeg.raw,       │    │   ┌──────────┴──────────┐       │    │   alerts.anomaly          │\n│       ehr.updates, alerts.anomaly) │    │   │                     │       │    │                          │\n└────────────────────────────────────┘    │  BATCH (CronJob)   SPEED LAYER  │    │   Grafana ◄── this view  │\n                                          │  03:00 UTC daily   foreachBatch │    │   (refresh 5 s)           │\n                                          │                                  │    │                          │\n                                          │  ▸ Silver EEG (dedup, quality)   │    └──────────────────────────┘\n                                          │  ▸ Silver EHR (row_number latest)│\n                                          │  ▸ Patient dim (broadcast)       │\n                                          │  ▸ Gold patient_features         │\n                                          │     (broadcast join, ±30 min     │\n                                          │     range, daily rollups)        │\n                                          └────────────────────────────────┘</pre>"
+      }
+    },
+    {
+      "id": 20, "type": "text", "title": "Spark features in use",
+      "gridPos": {"x": 0, "y": 15, "w": 12, "h": 10},
+      "options": {
+        "mode": "markdown",
+        "content": "| Capstone-rubric requirement | Where in the code |\n|---|---|\n| **Window functions** | `silver_layer.build_ehr_silver` — `row_number() over partitionBy(patient_id, encounter_id) orderBy version desc` |\n| **Pivot-style indicators** | `gold_layer.build_patient_features` — `max(when(event_type='critical_lab',1).otherwise(0))` |\n| **Custom UDFs** | `speed_layer` — `F.udf(compute_anomaly_score)` blends 4 feature terms into a 0–1 score |\n| **Broadcast join (unbalanced)** | `gold_layer` — `F.broadcast(patient_dim)`, asserted by `test_patient_dim_join_uses_broadcast` |\n| **Sort-merge join (large)** | `gold_layer` — EEG ⋈ EHR on `patient_id` + ±30 min predicate |\n| **Partition pruning** | `silver/eeg/site_id=*/ingestion_date=*` parquet partitions |\n| **Caching / persistence** | `spark.sql.autoBroadcastJoinThreshold = 50 MiB` set in the batch driver |\n| **Structured streaming** | `bronze_ingest` (Kafka source, append mode) + `speed_layer` (Parquet stream, update mode) |\n| **Watermarking / late-data** | `eeg_df.withWatermark('event_time','10 minutes')`, EHR 30 min |\n| **Exactly-once** | Cassandra `PRIMARY KEY (patient_id, alert_time)` + Spark checkpoint PVC |"
+      }
+    },
+    {
+      "id": 21, "type": "text", "title": "Tech stack",
+      "gridPos": {"x": 12, "y": 15, "w": 12, "h": 10},
+      "options": {
+        "mode": "markdown",
+        "content": "| Layer | Choice | Version | Why |\n|---|---|---|---|\n| Messaging | Apache **Kafka** | 3.9 KRaft | partition by patient_id, no ZK dependency |\n| Stream + Batch | Apache **Spark** | 3.5.5 | one engine for both Lambda halves |\n| Serving | **Cassandra** | 4.1 | wide-row time-series with `CLUSTERING ORDER BY alert_time DESC` |\n| Orchestration | **Kubernetes** | EKS 1.30 | course requirement; 2× t3.xlarge nodes |\n| Storage | EBS **gp3** | — | 5 PVCs (bronze 20 / silver 20 / gold 10 / checkpoints 5 / cassandra 20 GiB) |\n| Visualization | **Grafana 11** + Infinity datasource | — | this dashboard |\n| Code distribution | **S3** | — | wheel + scripts/, no Docker build |\n| Tests | **pytest 9** | — | 67/67 passing |\n| Lang | **Python 3.10+** + Scala (Spark JARs) | — | type-hinted, slots dataclasses |\n\n### Cost on EKS\n~$0.44/h while cluster runs. Snapshot + tear-down: ~$1/week storage. See repo `infra/cloud/deploy_cloud.sh`."
+      }
+    },
+    {
+      "id": 30, "type": "text", "title": "Lessons learned (the top three)",
+      "gridPos": {"x": 0, "y": 25, "w": 24, "h": 11},
+      "options": {
+        "mode": "markdown",
+        "content": "### Lesson 1 · Bronze AND silver dedup\n**Why both?** Bronze guards against Kafka at-least-once redelivery via SHA-256 fingerprint on `(patient_id, session_id, event_time)`. Silver guards against EHR encounter *mutations* via `row_number().over(partition by patient_id, encounter_id order by version desc)`. Same name, different failure modes. Removing either layer reintroduces double-counted alerts in production.\n\n### Lesson 2 · Pin Spark join plans with assertions\n`test_patient_dim_join_uses_broadcast` parses `queryExecution.toString()` and asserts `BroadcastHashJoin` appears in the plan. Without it, Catalyst silently falls back to SortMergeJoin (3.4× slower on our fixtures) and CI stays green. The test catches the regression *before* the slow run hits production.\n\n### Lesson 3 · Banish `pass` test bodies\nWe started the finalize sprint with 67 tests \"passing\" — but 8 of them were `pass` stubs that asserted nothing, including the silver and gold layer tests. The silver/gold *implementations* were also `pass`. Rewriting both with real fixtures (`tmp_path` + `local[2]` SparkSession + exact-value assertions) closed an entire false-confidence layer.\n\n*Full 11-lesson rubric in `docs/final-report.md` § 11.*"
+      }
+    }
+  ]
+}
