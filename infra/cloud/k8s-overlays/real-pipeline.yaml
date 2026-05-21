@@ -188,8 +188,9 @@ spec:
           args:
             - |
               set -eux
-              mkdir -p /code/scripts
+              mkdir -p /code/scripts /code/wheels
               aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /code/scripts/ --recursive
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /code/wheels/
           env:
             - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
             - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
@@ -203,7 +204,7 @@ spec:
           args:
             - |
               set -eux
-              pip install --no-cache-dir cassandra-driver==3.29.1 boto3
+              pip install --no-cache-dir cassandra-driver==3.29.1 boto3 /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
               exec python /code/scripts/cassandra_to_s3_exporter.py \
                    --cassandra cassandra-0.cassandra-svc.brainwatch.svc.cluster.local \
                    --bucket    brainwatch-dashboard-923884399064 \

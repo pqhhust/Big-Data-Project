@@ -1,0 +1,24 @@
+NAME                                      READY   STATUS      RESTARTS   AGE     IP               NODE                             NOMINATED NODE   READINESS GATES
+pod/bronze-seeder                         1/1     Running     0          10m     192.168.43.247   ip-192-168-62-241.ec2.internal   <none>           <none>
+pod/cassandra-0                           1/1     Running     0          10m     192.168.56.98    ip-192-168-62-241.ec2.internal   <none>           <none>
+pod/cassandra-exporter-6b66648666-4vpcf   1/1     Running     0          97s     192.168.49.115   ip-192-168-62-241.ec2.internal   <none>           <none>
+pod/cassandra-schema-init-p9zt4           0/1     Completed   0          9m25s   192.168.1.50     ip-192-168-23-136.ec2.internal   <none>           <none>
+pod/grafana-68fcfdb589-h2rrf              1/1     Running     0          9m33s   192.168.63.196   ip-192-168-62-241.ec2.internal   <none>           <none>
+pod/kafka-0                               1/1     Running     0          10m     192.168.0.130    ip-192-168-23-136.ec2.internal   <none>           <none>
+pod/kafka-producer-869d57d8d5-jnhgb       1/1     Running     0          9m24s   192.168.49.20    ip-192-168-62-241.ec2.internal   <none>           <none>
+pod/speed-layer-74466c56d5-98cp9          1/1     Running     0          9m23s   192.168.9.116    ip-192-168-23-136.ec2.internal   <none>           <none>
+
+NAME                    TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE     SELECTOR
+service/cassandra-svc   ClusterIP   None            <none>        9042/TCP,7000/TCP   10m     app=cassandra
+service/grafana         NodePort    10.100.44.120   <none>        3000:30300/TCP      9m33s   app=grafana
+service/kafka           ClusterIP   None            <none>        9092/TCP            10m     app=kafka
+
+NAME                                               STATUS    VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE     VOLUMEMODE
+persistentvolumeclaim/bronze-pvc                   Bound     pvc-8d84dd32-0fb9-4a59-8061-db9957c1525b   20Gi       RWO            gp3            <unset>                 11m     Filesystem
+persistentvolumeclaim/cassandra-data-cassandra-0   Bound     pvc-30e6b8f3-c7f3-4500-a4f2-dc299c572f23   20Gi       RWO            gp3            <unset>                 10m     Filesystem
+persistentvolumeclaim/cassandra-pvc                Pending                                                                        gp3            <unset>                 11m     Filesystem
+persistentvolumeclaim/checkpoints-pvc              Bound     pvc-738c8341-c4a7-46fd-a1f5-2265cd7eb08b   5Gi        RWO            gp3            <unset>                 11m     Filesystem
+persistentvolumeclaim/gold-pvc                     Pending                                                                        gp3            <unset>                 11m     Filesystem
+persistentvolumeclaim/grafana-data                 Bound     pvc-2bc22b6e-210e-46a6-a07e-d32c63273c15   5Gi        RWO            gp3            <unset>                 9m36s   Filesystem
+persistentvolumeclaim/kafka-data-kafka-0           Bound     pvc-4e5ff183-3b2a-44b6-bf89-e3d63d51f5e6   10Gi       RWO            gp3            <unset>                 10m     Filesystem
+persistentvolumeclaim/silver-pvc                   Pending                                                                        gp3            <unset>                 11m     Filesystem
