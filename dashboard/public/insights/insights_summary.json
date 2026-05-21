@@ -1,0 +1,10 @@
+{
+  "patients_in_dim": 1194544,
+  "patients_in_alerts": 5000,
+  "icd_codes_distinct": 15,
+  "icd_categories": 10,
+  "sites": 2,
+  "alerts_analyzed": 5000,
+  "ehr_event_types": 5,
+  "eeg_quality_flags": 1
+}

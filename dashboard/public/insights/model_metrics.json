@@ -1,0 +1,40 @@
+{
+  "auc_roc": 0.5006,
+  "accuracy": 0.6126,
+  "train_count": 955976,
+  "test_count": 239356,
+  "coefficients": [
+    0.0,
+    0.03389,
+    0.03751
+  ],
+  "intercept": -0.46135,
+  "features": [
+    "mean_sampling_rate",
+    "has_critical_lab_today",
+    "n_medication_changes"
+  ],
+  "confusion_matrix": [
+    {
+      "label": 0,
+      "prediction": 0,
+      "count": 145717
+    },
+    {
+      "label": 0,
+      "prediction": 1,
+      "count": 577
+    },
+    {
+      "label": 1,
+      "prediction": 0,
+      "count": 92150
+    },
+    {
+      "label": 1,
+      "prediction": 1,
+      "count": 912
+    }
+  ],
+  "model_path": "artifacts/models/severity_logreg"
+}

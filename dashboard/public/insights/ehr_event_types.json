@@ -1,0 +1,22 @@
+[
+  {
+    "event_type": "vital_signs",
+    "count": 358404
+  },
+  {
+    "event_type": "lab_result",
+    "count": 298660
+  },
+  {
+    "event_type": "medication",
+    "count": 239105
+  },
+  {
+    "event_type": "note",
+    "count": 179343
+  },
+  {
+    "event_type": "critical_lab",
+    "count": 119032
+  }
+]

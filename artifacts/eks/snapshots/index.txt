@@ -1,0 +1,7 @@
+bronze-pvc                       vol-03187e56d076b892c  snap-0375c16622f9f5009
+cassandra-data-cassandra-0       vol-0172de6a6c84024d0  snap-0b9a2129ee0a57d28
+checkpoints-pvc                  vol-055219832acfddf9f  snap-0dd96f90199114128
+gold-pvc                         vol-03facd61c4bd2c01a  snap-0980bdbf675fa45ac
+grafana-data                     vol-0f1e32ed07f3ed62a  snap-0288668abc7dcca0d
+kafka-data-kafka-0               vol-03fa41d73bcb651a7  snap-0880c67585daf9c15
+silver-pvc                       vol-0d146b8154f48a7e4  snap-04c9a52ca94b20cc7

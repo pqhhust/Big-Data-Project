@@ -1,0 +1,20 @@
+[
+  {
+    "site_id": "I0002",
+    "critical": 33,
+    "warning": 0,
+    "advisory": 788,
+    "normal": 1221,
+    "suppressed": 20,
+    "total": 2062
+  },
+  {
+    "site_id": "S0001",
+    "critical": 42,
+    "warning": 0,
+    "advisory": 1029,
+    "normal": 1841,
+    "suppressed": 26,
+    "total": 2938
+  }
+]

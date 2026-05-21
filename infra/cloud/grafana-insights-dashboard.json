@@ -1,0 +1,169 @@
+{
+  "title": "BrainWatch · Clinical Insights",
+  "uid": "brainwatch-insights",
+  "tags": ["brainwatch", "clinical"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {"from": "now-24h", "to": "now"},
+  "editable": true,
+  "graphTooltip": 1,
+  "style": "dark",
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "text", "title": "",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
+      "options": {
+        "mode": "html",
+        "content": "<div style='padding:10px 18px;background:linear-gradient(90deg,#1a1f3a,#2d3656);border-radius:6px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:20px;font-weight:700;letter-spacing:-0.01em;'>Clinical Insights · BrainWatch</div><div style='color:#9aa7b8;font-size:12.5px;margin-top:2px;'>ICD-10 diagnoses, site comparison, diurnal alert patterns, EEG quality, cohort. Rolled up from silver + gold zones + speed-layer alerts.</div></div>"
+      }
+    },
+    {
+      "id": 10, "type": "stat", "title": "Patients with ICD assignments",
+      "gridPos": {"x": 0, "y": 3, "w": 6, "h": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "fixed", "fixedColor": "#5794F2"}, "unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#5794F2"}]}},
+        "overrides": []
+      },
+      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^patients_in_dim$/", "values": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/insights_summary.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "patients_in_dim", "text": "patients_in_dim", "type": "number"}]}]
+    },
+    {
+      "id": 11, "type": "stat", "title": "Distinct ICD-10 codes",
+      "gridPos": {"x": 6, "y": 3, "w": 6, "h": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#B877D9"}, "unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#B877D9"}]}}, "overrides": []},
+      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^icd_codes_distinct$/", "values": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/insights_summary.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "icd_codes_distinct", "text": "icd_codes_distinct", "type": "number"}]}]
+    },
+    {
+      "id": 12, "type": "stat", "title": "Sites",
+      "gridPos": {"x": 12, "y": 3, "w": 6, "h": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#73BF69"}, "unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#73BF69"}]}}, "overrides": []},
+      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^sites$/", "values": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/insights_summary.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "sites", "text": "sites", "type": "number"}]}]
+    },
+    {
+      "id": 13, "type": "stat", "title": "Alerts analyzed",
+      "gridPos": {"x": 18, "y": 3, "w": 6, "h": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#F2CC0C"}, "unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#F2CC0C"}]}}, "overrides": []},
+      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^alerts_analyzed$/", "values": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/insights_summary.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "alerts_analyzed", "text": "alerts_analyzed", "type": "number"}]}]
+    },
+
+    {
+      "id": 20, "type": "barchart", "title": "ICD-10 diagnosis prevalence (top patient counts)",
+      "gridPos": {"x": 0, "y": 7, "w": 16, "h": 11},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic-by-name"}, "custom": {"axisLabel": "", "axisPlacement": "auto", "fillOpacity": 90, "lineWidth": 0, "thresholdsStyle": {"mode": "off"}}, "unit": "short"},
+        "overrides": []
+      },
+      "options": {"orientation": "horizontal", "xTickLabelRotation": 0, "showValue": "auto", "stacking": "none", "groupWidth": 0.9, "barWidth": 0.92, "barRadius": 0.1, "legend": {"displayMode": "list", "placement": "bottom", "showLegend": false}, "tooltip": {"mode": "single"}, "xField": "code"},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/icd_codes_top.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "code", "text": "code", "type": "string"}, {"selector": "patient_count", "text": "patient_count", "type": "number"}, {"selector": "description", "text": "description", "type": "string"}, {"selector": "category", "text": "category", "type": "string"}]}]
+    },
+    {
+      "id": 21, "type": "piechart", "title": "ICD-10 category mix",
+      "gridPos": {"x": 16, "y": 7, "w": 8, "h": 11},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "unit": "short"},
+        "overrides": []
+      },
+      "options": {"pieType": "donut", "displayLabels": ["percent"], "legend": {"displayMode": "list", "placement": "right", "showLegend": true, "values": ["value", "percent"]}, "tooltip": {"mode": "single"}, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/icd_breakdown.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "category", "text": "category", "type": "string"}, {"selector": "patient_count", "text": "patient_count", "type": "number"}]}],
+      "transformations": [{"id": "rowsToFields", "options": {"mappings": [{"fieldName": "category", "handlerKey": "field.name"}, {"fieldName": "patient_count", "handlerKey": "field.value"}]}}]
+    },
+
+    {
+      "id": 30, "type": "table", "title": "ICD-category vs alert rate",
+      "gridPos": {"x": 0, "y": 18, "w": 12, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "left", "displayMode": "auto"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "alerts_per_patient"}, "properties": [
+            {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}},
+            {"id": "color", "value": {"mode": "continuous-BlPu"}},
+            {"id": "decimals", "value": 3},
+            {"id": "custom.align", "value": "center"}
+          ]},
+          {"matcher": {"id": "byName", "options": "critical_rate"}, "properties": [
+            {"id": "unit", "value": "percentunit"},
+            {"id": "decimals", "value": 2},
+            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+            {"id": "color", "value": {"mode": "continuous-GrYlRd"}}
+          ]}
+        ]
+      },
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/icd_breakdown.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "category", "text": "category", "type": "string"}, {"selector": "patient_count", "text": "patients", "type": "number"}, {"selector": "alerts", "text": "alerts", "type": "number"}, {"selector": "critical_alerts", "text": "critical", "type": "number"}, {"selector": "alerts_per_patient", "text": "alerts_per_patient", "type": "number"}, {"selector": "critical_rate", "text": "critical_rate", "type": "number"}]}]
+    },
+
+    {
+      "id": 40, "type": "table", "title": "Site comparison · severity distribution",
+      "gridPos": {"x": 12, "y": 18, "w": 12, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "center", "displayMode": "auto"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "color", "value": {"mode": "thresholds"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}, {"value": 1, "color": "red"}]}}, {"id": "custom.cellOptions", "value": {"type": "color-text"}}]},
+          {"matcher": {"id": "byName", "options": "warning"},  "properties": [{"id": "color", "value": {"mode": "thresholds"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}, {"value": 1, "color": "orange"}]}}, {"id": "custom.cellOptions", "value": {"type": "color-text"}}]},
+          {"matcher": {"id": "byName", "options": "total"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-BlPu"}}]}
+        ]
+      },
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "md"},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/site_severity.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "site_id", "text": "site", "type": "string"}, {"selector": "critical", "text": "critical", "type": "number"}, {"selector": "warning", "text": "warning", "type": "number"}, {"selector": "advisory", "text": "advisory", "type": "number"}, {"selector": "normal", "text": "normal", "type": "number"}, {"selector": "total", "text": "total", "type": "number"}]}]
+    },
+
+    {
+      "id": 50, "type": "timeseries", "title": "Diurnal alert pattern · hour of day",
+      "gridPos": {"x": 0, "y": 27, "w": 16, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"custom": {"drawStyle": "bars", "lineWidth": 0, "fillOpacity": 80, "showPoints": "never", "stacking": {"mode": "normal", "group": "A"}, "axisGridShow": false}, "color": {"mode": "palette-classic"}, "unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+          {"matcher": {"id": "byName", "options": "warning"},  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
+          {"matcher": {"id": "byName", "options": "advisory"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#5794F2"}}]},
+          {"matcher": {"id": "byName", "options": "normal"},   "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#73BF69"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "xField": "hour"},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/diurnal_alerts.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "hour", "text": "hour", "type": "number"}, {"selector": "critical", "text": "critical", "type": "number"}, {"selector": "warning", "text": "warning", "type": "number"}, {"selector": "advisory", "text": "advisory", "type": "number"}, {"selector": "normal", "text": "normal", "type": "number"}]}]
+    },
+
+    {
+      "id": 60, "type": "piechart", "title": "EHR event-type mix (silver)",
+      "gridPos": {"x": 16, "y": 27, "w": 8, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "unit": "short"}, "overrides": []},
+      "options": {"pieType": "donut", "displayLabels": ["percent"], "legend": {"displayMode": "list", "placement": "right", "showLegend": true, "values": ["value", "percent"]}, "tooltip": {"mode": "single"}, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/ehr_event_types.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "event_type", "text": "event_type", "type": "string"}, {"selector": "count", "text": "count", "type": "number"}]}],
+      "transformations": [{"id": "rowsToFields", "options": {"mappings": [{"fieldName": "event_type", "handlerKey": "field.name"}, {"fieldName": "count", "handlerKey": "field.value"}]}}]
+    },
+
+    {
+      "id": 70, "type": "table", "title": "Most-alerted cohort · with ICDs and site",
+      "gridPos": {"x": 0, "y": 36, "w": 24, "h": 11},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "left", "displayMode": "auto"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}, {"value": 1, "color": "red"}]}}, {"id": "color", "value": {"mode": "thresholds"}}, {"id": "custom.align", "value": "center"}, {"id": "custom.width", "value": 80}]},
+          {"matcher": {"id": "byName", "options": "max_score"}, "properties": [{"id": "decimals", "value": 2}, {"id": "custom.align", "value": "center"}, {"id": "custom.width", "value": 100}]},
+          {"matcher": {"id": "byName", "options": "icd_codes"}, "properties": [{"id": "custom.width", "value": 220}]},
+          {"matcher": {"id": "byName", "options": "icd_categories"}, "properties": [{"id": "custom.width", "value": 240}]}
+        ]
+      },
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/cohort.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "patient_id", "text": "patient", "type": "string"}, {"selector": "site_id", "text": "site", "type": "string"}, {"selector": "total", "text": "alerts", "type": "number"}, {"selector": "critical", "text": "critical", "type": "number"}, {"selector": "warning", "text": "warning", "type": "number"}, {"selector": "max_score", "text": "max_score", "type": "number"}, {"selector": "icd_codes", "text": "icd_codes", "type": "string"}, {"selector": "icd_categories", "text": "icd_categories", "type": "string"}]}]
+    }
+  ]
+}

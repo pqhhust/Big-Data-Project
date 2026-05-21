@@ -1,0 +1,82 @@
+[
+  {
+    "category": "Seizure",
+    "patient_count": 1010379,
+    "alerts": 4379,
+    "critical_alerts": 53,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0121
+  },
+  {
+    "category": "Encephalopathy",
+    "patient_count": 401531,
+    "alerts": 1715,
+    "critical_alerts": 30,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0175
+  },
+  {
+    "category": "Stroke",
+    "patient_count": 394111,
+    "alerts": 1564,
+    "critical_alerts": 30,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0192
+  },
+  {
+    "category": "TBI",
+    "patient_count": 125975,
+    "alerts": 546,
+    "critical_alerts": 13,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0238
+  },
+  {
+    "category": "Altered LOC",
+    "patient_count": 101308,
+    "alerts": 415,
+    "critical_alerts": 5,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.012
+  },
+  {
+    "category": "Cognitive",
+    "patient_count": 101127,
+    "alerts": 440,
+    "critical_alerts": 3,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0068
+  },
+  {
+    "category": "TIA",
+    "patient_count": 76665,
+    "alerts": 283,
+    "critical_alerts": 2,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0071
+  },
+  {
+    "category": "Demyelinating",
+    "patient_count": 75798,
+    "alerts": 315,
+    "critical_alerts": 4,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0127
+  },
+  {
+    "category": "Neuromuscular",
+    "patient_count": 51343,
+    "alerts": 202,
+    "critical_alerts": 4,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0198
+  },
+  {
+    "category": "Headache",
+    "patient_count": 50920,
+    "alerts": 195,
+    "critical_alerts": 5,
+    "alerts_per_patient": 0.004,
+    "critical_rate": 0.0256
+  }
+]
