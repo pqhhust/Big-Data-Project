@@ -124,12 +124,37 @@ EHR Source → Kafka (ehr.updates) → Spark Streaming → Bronze Parquet ──
 - [Setup Guide](docs/setup-guide.md) - Environment setup instructions
 - [Week 1 Slides](docs/week1-slides.md) - Week 1 deliverables presentation
 
-## Status
+## Status — final
 
-- **Week 1**: Architecture, scaffold complete
-- **Week 2**: Ingestion layer complete (67 tests passing)
-- **Week 3-4**: Batch/Speed layers in progress
-- **Week 5-6**: Serving, dashboard, integration planned
+- **Architecture + ingestion + batch + speed + serving**: complete
+- **Real data**: 8.5 GiB of real BDSP/Harvard EDF (1,190 recordings, 1,097
+  patients, 4 sites) parsed with `mne` into measured bronze events; real
+  HEEDB ICD-10 neurology diagnoses joined for 640 patients
+- **Tests**: 131 passing (`pytest -q`), local-first
+- **Cloud**: deployed end-to-end on AWS EKS — Kafka (KRaft) → Spark Structured
+  Streaming → Cassandra → S3 → Grafana (4 dashboards)
+- **Docs**: `docs/PRESENTATION-GUIDE.md` (defense prep), `docs/final-report.md`
+  (11-lesson rubric), `CONTRIBUTORS.md` (role attribution)
+
+### Real-data pipeline (local)
+
+```bash
+# 1. Download real EDF from BDSP (needs the rootkey)
+export BDSP_CREDENTIALS=../credentials/rootkey.csv
+python scripts/download_real_edf.py --target-gb 8.5 --min-duration 600 --max-duration 3000
+
+# 2. Parse real signal → measured bronze events
+python scripts/edf_to_bronze.py --bronze data/lake/bronze_real
+
+# 3. Real EHR with HEEDB ICD-10
+python scripts/build_real_ehr.py --bronze data/lake/bronze_real
+
+# 4. Batch bronze → silver → gold
+python scripts/run_batch.py --bronze data/lake/bronze_real --silver data/lake/silver_real --gold data/lake/gold_real
+
+# 5. Clinical insights (real ICD-10) + alerts
+python scripts/extract_clinical_insights.py --silver data/lake/silver_real --gold data/lake/gold_real --alerts artifacts/demo/alerts_real.jsonl
+```
 
 ## License
 
