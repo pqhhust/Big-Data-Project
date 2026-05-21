@@ -2,121 +2,121 @@
   {
     "code": "Miscellaneous",
     "description": "Miscellaneous",
-    "patient_count": 196,
+    "patient_count": 552,
     "category": "Miscellaneous"
   },
   {
     "code": "Seizure Disorders",
     "description": "Seizure Disorders",
-    "patient_count": 167,
+    "patient_count": 435,
     "category": "Seizure Disorders"
   },
   {
     "code": "Seizure",
     "description": "Seizure",
-    "patient_count": 127,
+    "patient_count": 365,
     "category": "Seizure"
   },
   {
     "code": "Headache Disorders",
     "description": "Headache Disorders",
-    "patient_count": 99,
+    "patient_count": 227,
     "category": "Headache Disorders"
   },
   {
     "code": "Sleep Disorders",
     "description": "Sleep Disorders",
-    "patient_count": 80,
+    "patient_count": 186,
     "category": "Sleep Disorders"
   },
   {
     "code": "Cerebral Degeneration",
     "description": "Cerebral Degeneration",
-    "patient_count": 64,
+    "patient_count": 165,
     "category": "Cerebral Degeneration"
-  },
-  {
-    "code": "Cerebral Lobe Dysfunction",
-    "description": "Cerebral Lobe Dysfunction",
-    "patient_count": 52,
-    "category": "Cerebral Lobe Dysfunction"
-  },
-  {
-    "code": "Stroke",
-    "description": "Stroke",
-    "patient_count": 51,
-    "category": "Stroke"
   },
   {
     "code": "Encephalopathy",
     "description": "Encephalopathy",
-    "patient_count": 50,
+    "patient_count": 155,
     "category": "Encephalopathy"
   },
   {
-    "code": "Other Neurological Disorders",
-    "description": "Other Neurological Disorders",
-    "patient_count": 48,
-    "category": "Other Neurological Disorders"
+    "code": "Stroke",
+    "description": "Stroke",
+    "patient_count": 149,
+    "category": "Stroke"
   },
   {
     "code": "Movement And Cerebellar Disorders",
     "description": "Movement And Cerebellar Disorders",
-    "patient_count": 45,
+    "patient_count": 113,
     "category": "Movement And Cerebellar Disorders"
+  },
+  {
+    "code": "Cerebral Lobe Dysfunction",
+    "description": "Cerebral Lobe Dysfunction",
+    "patient_count": 110,
+    "category": "Cerebral Lobe Dysfunction"
   },
   {
     "code": "Cerebrovascular Diseases",
     "description": "Cerebrovascular Diseases",
-    "patient_count": 39,
+    "patient_count": 110,
     "category": "Cerebrovascular Diseases"
+  },
+  {
+    "code": "Other Neurological Disorders",
+    "description": "Other Neurological Disorders",
+    "patient_count": 99,
+    "category": "Other Neurological Disorders"
   },
   {
     "code": "Behavioral/Cognitive Syndromes",
     "description": "Behavioral/Cognitive Syndromes",
-    "patient_count": 31,
+    "patient_count": 62,
     "category": "Behavioral/Cognitive Syndromes"
   },
   {
     "code": "Intracranial And Spinal Tumors",
     "description": "Intracranial And Spinal Tumors",
-    "patient_count": 30,
+    "patient_count": 56,
     "category": "Intracranial And Spinal Tumors"
+  },
+  {
+    "code": "Altered LOC",
+    "description": "Altered LOC",
+    "patient_count": 52,
+    "category": "Altered LOC"
+  },
+  {
+    "code": "TBI",
+    "description": "TBI",
+    "patient_count": 50,
+    "category": "TBI"
+  },
+  {
+    "code": "Cognitive",
+    "description": "Cognitive",
+    "patient_count": 41,
+    "category": "Cognitive"
   },
   {
     "code": "Developmental Delay",
     "description": "Developmental Delay",
-    "patient_count": 16,
+    "patient_count": 41,
     "category": "Developmental Delay"
   },
   {
     "code": "Infections",
     "description": "Infections",
-    "patient_count": 16,
+    "patient_count": 38,
     "category": "Infections"
   },
   {
-    "code": "TBI",
-    "description": "TBI",
-    "patient_count": 15,
-    "category": "TBI"
-  },
-  {
-    "code": "Altered LOC",
-    "description": "Altered LOC",
-    "patient_count": 15,
-    "category": "Altered LOC"
-  },
-  {
-    "code": "TIA",
-    "description": "TIA",
-    "patient_count": 13,
-    "category": "TIA"
-  },
-  {
-    "code": "Neuromuscular",
-    "description": "Neuromuscular",
-    "patient_count": 11,
-    "category": "Neuromuscular"
+    "code": "Demyelinating",
+    "description": "Demyelinating",
+    "patient_count": 31,
+    "category": "Demyelinating"
   }
 ]

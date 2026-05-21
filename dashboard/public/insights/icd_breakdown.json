@@ -1,208 +1,224 @@
 [
   {
     "category": "Miscellaneous",
-    "patient_count": 196,
-    "alerts": 189,
-    "critical_alerts": 6,
-    "alerts_per_patient": 0.964,
-    "critical_rate": 0.0317
+    "patient_count": 552,
+    "alerts": 541,
+    "critical_alerts": 8,
+    "alerts_per_patient": 0.98,
+    "critical_rate": 0.0148
   },
   {
     "category": "Seizure Disorders",
-    "patient_count": 167,
-    "alerts": 156,
-    "critical_alerts": 5,
-    "alerts_per_patient": 0.934,
-    "critical_rate": 0.0321
+    "patient_count": 435,
+    "alerts": 420,
+    "critical_alerts": 6,
+    "alerts_per_patient": 0.966,
+    "critical_rate": 0.0143
   },
   {
     "category": "Seizure",
-    "patient_count": 127,
-    "alerts": 124,
-    "critical_alerts": 1,
-    "alerts_per_patient": 0.976,
-    "critical_rate": 0.0081
+    "patient_count": 365,
+    "alerts": 360,
+    "critical_alerts": 10,
+    "alerts_per_patient": 0.986,
+    "critical_rate": 0.0278
   },
   {
     "category": "Headache Disorders",
-    "patient_count": 99,
-    "alerts": 94,
-    "critical_alerts": 4,
-    "alerts_per_patient": 0.949,
-    "critical_rate": 0.0426
+    "patient_count": 227,
+    "alerts": 224,
+    "critical_alerts": 5,
+    "alerts_per_patient": 0.987,
+    "critical_rate": 0.0223
   },
   {
     "category": "Sleep Disorders",
-    "patient_count": 80,
-    "alerts": 78,
-    "critical_alerts": 0,
-    "alerts_per_patient": 0.975,
-    "critical_rate": 0.0
+    "patient_count": 186,
+    "alerts": 181,
+    "critical_alerts": 1,
+    "alerts_per_patient": 0.973,
+    "critical_rate": 0.0055
   },
   {
     "category": "Cerebral Degeneration",
-    "patient_count": 64,
-    "alerts": 61,
-    "critical_alerts": 0,
-    "alerts_per_patient": 0.953,
-    "critical_rate": 0.0
-  },
-  {
-    "category": "Cerebral Lobe Dysfunction",
-    "patient_count": 52,
-    "alerts": 49,
-    "critical_alerts": 3,
-    "alerts_per_patient": 0.942,
-    "critical_rate": 0.0612
-  },
-  {
-    "category": "Stroke",
-    "patient_count": 51,
-    "alerts": 49,
-    "critical_alerts": 0,
-    "alerts_per_patient": 0.961,
-    "critical_rate": 0.0
+    "patient_count": 165,
+    "alerts": 166,
+    "critical_alerts": 2,
+    "alerts_per_patient": 1.006,
+    "critical_rate": 0.012
   },
   {
     "category": "Encephalopathy",
-    "patient_count": 50,
-    "alerts": 50,
-    "critical_alerts": 0,
-    "alerts_per_patient": 1.0,
-    "critical_rate": 0.0
+    "patient_count": 155,
+    "alerts": 153,
+    "critical_alerts": 3,
+    "alerts_per_patient": 0.987,
+    "critical_rate": 0.0196
   },
   {
-    "category": "Other Neurological Disorders",
-    "patient_count": 48,
-    "alerts": 48,
-    "critical_alerts": 1,
-    "alerts_per_patient": 1.0,
-    "critical_rate": 0.0208
+    "category": "Stroke",
+    "patient_count": 149,
+    "alerts": 150,
+    "critical_alerts": 4,
+    "alerts_per_patient": 1.007,
+    "critical_rate": 0.0267
   },
   {
     "category": "Movement And Cerebellar Disorders",
-    "patient_count": 45,
-    "alerts": 42,
+    "patient_count": 113,
+    "alerts": 112,
     "critical_alerts": 1,
-    "alerts_per_patient": 0.933,
-    "critical_rate": 0.0238
+    "alerts_per_patient": 0.991,
+    "critical_rate": 0.0089
+  },
+  {
+    "category": "Cerebral Lobe Dysfunction",
+    "patient_count": 110,
+    "alerts": 108,
+    "critical_alerts": 0,
+    "alerts_per_patient": 0.982,
+    "critical_rate": 0.0
   },
   {
     "category": "Cerebrovascular Diseases",
-    "patient_count": 39,
-    "alerts": 37,
-    "critical_alerts": 1,
-    "alerts_per_patient": 0.949,
-    "critical_rate": 0.027
+    "patient_count": 110,
+    "alerts": 110,
+    "critical_alerts": 4,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0364
+  },
+  {
+    "category": "Other Neurological Disorders",
+    "patient_count": 99,
+    "alerts": 99,
+    "critical_alerts": 3,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0303
   },
   {
     "category": "Behavioral/Cognitive Syndromes",
-    "patient_count": 31,
-    "alerts": 30,
-    "critical_alerts": 1,
-    "alerts_per_patient": 0.968,
-    "critical_rate": 0.0333
+    "patient_count": 62,
+    "alerts": 55,
+    "critical_alerts": 0,
+    "alerts_per_patient": 0.887,
+    "critical_rate": 0.0
   },
   {
     "category": "Intracranial And Spinal Tumors",
-    "patient_count": 30,
-    "alerts": 29,
-    "critical_alerts": 1,
-    "alerts_per_patient": 0.967,
-    "critical_rate": 0.0345
-  },
-  {
-    "category": "Developmental Delay",
-    "patient_count": 16,
-    "alerts": 16,
+    "patient_count": 56,
+    "alerts": 56,
     "critical_alerts": 1,
     "alerts_per_patient": 1.0,
-    "critical_rate": 0.0625
-  },
-  {
-    "category": "Infections",
-    "patient_count": 16,
-    "alerts": 16,
-    "critical_alerts": 0,
-    "alerts_per_patient": 1.0,
-    "critical_rate": 0.0
-  },
-  {
-    "category": "TBI",
-    "patient_count": 15,
-    "alerts": 15,
-    "critical_alerts": 0,
-    "alerts_per_patient": 1.0,
-    "critical_rate": 0.0
+    "critical_rate": 0.0179
   },
   {
     "category": "Altered LOC",
-    "patient_count": 15,
-    "alerts": 14,
-    "critical_alerts": 0,
-    "alerts_per_patient": 0.933,
-    "critical_rate": 0.0
-  },
-  {
-    "category": "TIA",
-    "patient_count": 13,
-    "alerts": 13,
-    "critical_alerts": 0,
-    "alerts_per_patient": 1.0,
-    "critical_rate": 0.0
-  },
-  {
-    "category": "Neuromuscular",
-    "patient_count": 11,
-    "alerts": 11,
+    "patient_count": 52,
+    "alerts": 50,
     "critical_alerts": 1,
-    "alerts_per_patient": 1.0,
-    "critical_rate": 0.0909
+    "alerts_per_patient": 0.962,
+    "critical_rate": 0.02
   },
   {
-    "category": "Demyelinating",
-    "patient_count": 10,
-    "alerts": 10,
-    "critical_alerts": 0,
+    "category": "TBI",
+    "patient_count": 50,
+    "alerts": 50,
+    "critical_alerts": 2,
     "alerts_per_patient": 1.0,
-    "critical_rate": 0.0
+    "critical_rate": 0.04
   },
   {
     "category": "Cognitive",
-    "patient_count": 9,
-    "alerts": 9,
+    "patient_count": 41,
+    "alerts": 41,
+    "critical_alerts": 2,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0488
+  },
+  {
+    "category": "Developmental Delay",
+    "patient_count": 41,
+    "alerts": 39,
+    "critical_alerts": 0,
+    "alerts_per_patient": 0.951,
+    "critical_rate": 0.0
+  },
+  {
+    "category": "Infections",
+    "patient_count": 38,
+    "alerts": 38,
+    "critical_alerts": 0,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0
+  },
+  {
+    "category": "Demyelinating",
+    "patient_count": 31,
+    "alerts": 31,
+    "critical_alerts": 2,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0645
+  },
+  {
+    "category": "TIA",
+    "patient_count": 30,
+    "alerts": 30,
     "critical_alerts": 0,
     "alerts_per_patient": 1.0,
     "critical_rate": 0.0
   },
   {
     "category": "Peripheral Nervous System Disorders",
-    "patient_count": 7,
-    "alerts": 7,
+    "patient_count": 24,
+    "alerts": 24,
     "critical_alerts": 0,
     "alerts_per_patient": 1.0,
     "critical_rate": 0.0
   },
   {
     "category": "Headache",
-    "patient_count": 5,
-    "alerts": 5,
+    "patient_count": 24,
+    "alerts": 24,
     "critical_alerts": 1,
     "alerts_per_patient": 1.0,
-    "critical_rate": 0.2
+    "critical_rate": 0.0417
+  },
+  {
+    "category": "Neuromuscular",
+    "patient_count": 19,
+    "alerts": 18,
+    "critical_alerts": 0,
+    "alerts_per_patient": 0.947,
+    "critical_rate": 0.0
   },
   {
     "category": "Muscular Dystrophies And Other Myopathies",
-    "patient_count": 3,
-    "alerts": 3,
+    "patient_count": 12,
+    "alerts": 12,
     "critical_alerts": 0,
     "alerts_per_patient": 1.0,
     "critical_rate": 0.0
   },
   {
     "category": "Motor Neuron Diseases",
-    "patient_count": 1,
-    "alerts": 1,
+    "patient_count": 4,
+    "alerts": 4,
+    "critical_alerts": 0,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0
+  },
+  {
+    "category": "Genetic Disorders",
+    "patient_count": 4,
+    "alerts": 4,
+    "critical_alerts": 0,
+    "alerts_per_patient": 1.0,
+    "critical_rate": 0.0
+  },
+  {
+    "category": "Cranial Nerve Disorders",
+    "patient_count": 3,
+    "alerts": 3,
     "critical_alerts": 0,
     "alerts_per_patient": 1.0,
     "critical_rate": 0.0

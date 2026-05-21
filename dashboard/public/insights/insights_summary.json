@@ -1,11 +1,11 @@
 {
-  "patients_in_dim": 389,
-  "patients_in_alerts": 374,
-  "icd_codes_distinct": 26,
-  "icd_categories": 26,
+  "patients_in_dim": 1097,
+  "patients_in_alerts": 1073,
+  "icd_codes_distinct": 28,
+  "icd_categories": 28,
   "icd_source": "heedb-real",
   "sites": 4,
-  "alerts_analyzed": 374,
+  "alerts_analyzed": 1077,
   "ehr_event_types": 5,
   "eeg_quality_flags": 1
 }

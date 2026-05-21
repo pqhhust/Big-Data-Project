@@ -25,11 +25,13 @@
   "kubeconform_errors": 0,
   "eks_pods_running": 3,
   "eks_pvcs_bound": 6,
-  "real_edf_files": 390,
-  "real_edf_subjects": 390,
-  "real_edf_gib": 8.562,
-  "real_bronze_events": 25748,
+  "real_edf_files": 1190,
+  "real_edf_subjects": 1097,
+  "real_edf_gib": 8.512,
+  "real_bronze_events": 29163,
   "real_silver_eeg_rows": 24759,
   "real_sites": 4,
-  "real_icd_source": "HEEDB neurology ICD-10"
+  "real_icd_source": "HEEDB neurology ICD-10",
+  "real_patients_with_heedb_icd": 640,
+  "real_alerts": 1077
 }

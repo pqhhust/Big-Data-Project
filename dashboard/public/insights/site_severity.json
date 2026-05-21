@@ -1,38 +1,38 @@
 [
   {
     "site_id": "I0002",
-    "critical": 2,
+    "critical": 4,
     "warning": 0,
-    "advisory": 49,
-    "normal": 40,
-    "suppressed": 0,
-    "total": 91
+    "advisory": 110,
+    "normal": 152,
+    "suppressed": 3,
+    "total": 269
   },
   {
     "site_id": "I0003",
-    "critical": 2,
+    "critical": 7,
     "warning": 0,
-    "advisory": 50,
-    "normal": 42,
-    "suppressed": 1,
-    "total": 95
+    "advisory": 113,
+    "normal": 147,
+    "suppressed": 3,
+    "total": 270
   },
   {
     "site_id": "S0001",
-    "critical": 4,
+    "critical": 2,
     "warning": 0,
-    "advisory": 39,
-    "normal": 45,
-    "suppressed": 1,
-    "total": 89
+    "advisory": 99,
+    "normal": 161,
+    "suppressed": 4,
+    "total": 266
   },
   {
     "site_id": "S0002",
-    "critical": 3,
+    "critical": 7,
     "warning": 0,
-    "advisory": 54,
-    "normal": 41,
-    "suppressed": 1,
-    "total": 99
+    "advisory": 123,
+    "normal": 140,
+    "suppressed": 2,
+    "total": 272
   }
 ]
