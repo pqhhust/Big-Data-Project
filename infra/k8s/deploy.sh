@@ -2,6 +2,7 @@
 # BrainWatch — production deploy script.
 #
 # Owner: Dat (script), Quang-Hung (cluster cutover).
+# Last updated: 2026-05-21 by Nguyễn Đình Đạt
 #
 # Usage:
 #   bash infra/k8s/deploy.sh                # deploy everything in order
