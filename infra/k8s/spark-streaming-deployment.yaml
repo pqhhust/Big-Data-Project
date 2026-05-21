@@ -1,6 +1,7 @@
 # Spark Structured Streaming Deployment — replaces the bootstrap Job.
 #
 # Owner: Dat (manifest), Quang-Hung (the speed-layer code being invoked).
+# Last updated: 2026-05-21 by Nguyễn Đình Đạt
 #
 # Why a Deployment instead of a Job?  Streaming queries are long-lived and
 # we want Kubernetes to restart them on pod crashes. CrashLoopBackoff is
