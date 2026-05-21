@@ -1,6 +1,7 @@
 # Daily Spark batch CronJob: bronze → silver → gold.
 #
 # Owner: Dat (manifest), Kim-Hung (the spark code being invoked).
+# Last updated: 2026-05-21 by Nguyễn Đình Đạt
 #
 # Schedule: 03:00 UTC daily (low load on the cluster).
 # Dat: implement.
