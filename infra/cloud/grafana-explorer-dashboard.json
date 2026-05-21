@@ -1,0 +1,87 @@
+{
+  "title": "BrainWatch · Data Explorer",
+  "uid": "brainwatch-explorer",
+  "tags": ["brainwatch", "explorer"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "editable": true,
+  "style": "dark",
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "text", "title": "",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
+      "options": {"mode": "html", "content": "<div style='padding:10px 18px;background:linear-gradient(90deg,#10243a,#1d3b2c);border-radius:6px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:20px;font-weight:700;'>Data Explorer · inspect every Lambda layer</div><div style='color:#9aa7b8;font-size:12.5px;margin-top:2px;'>Bronze (raw measured EDF/EHR JSONL) → Silver (deduped + quality-flagged Parquet) → Gold (per-patient daily features). Sample rows below; counts in the flow table.</div></div>"}
+    },
+    {
+      "id": 10, "type": "table", "title": "Lake flow · rows per zone (bronze → silver → gold)",
+      "gridPos": {"x": 0, "y": 3, "w": 24, "h": 7},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "left"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "rows"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-BlPu"}}]},
+          {"matcher": {"id": "byName", "options": "zone"}, "properties": [{"id": "custom.width", "value": 110}]}
+        ]
+      },
+      "options": {"showHeader": true, "cellHeight": "md", "footer": {"show": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/explorer/lake_stats.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "zone", "text": "zone", "type": "string"}, {"selector": "dataset", "text": "dataset", "type": "string"}, {"selector": "rows", "text": "rows", "type": "number"}, {"selector": "columns", "text": "columns", "type": "number"}, {"selector": "format", "text": "format", "type": "string"}]}]
+    },
+    {
+      "id": 20, "type": "table", "title": "BRONZE · eeg — measured EDF events (real signal features)",
+      "gridPos": {"x": 0, "y": 10, "w": 24, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"custom": {"align": "left", "filterable": true}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "signal_quality_score"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-RdYlGr"}}, {"id": "decimals", "value": 3}]},
+        {"matcher": {"id": "byName", "options": "mean_amplitude_uv"}, "properties": [{"id": "decimals", "value": 1}]}
+      ]},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/explorer/bronze_eeg_sample.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "patient_id", "text": "patient", "type": "string"}, {"selector": "site_id", "text": "site", "type": "string"}, {"selector": "session_id", "text": "ses", "type": "string"}, {"selector": "channel_count", "text": "channels", "type": "number"}, {"selector": "sampling_rate_hz", "text": "Hz", "type": "number"}, {"selector": "window_seconds", "text": "win_s", "type": "number"}, {"selector": "mean_amplitude_uv", "text": "amp_uv", "type": "number"}, {"selector": "flat_channel_frac", "text": "flat_frac", "type": "number"}, {"selector": "signal_quality_score", "text": "signal_quality_score", "type": "number"}]}]
+    },
+    {
+      "id": 30, "type": "table", "title": "BRONZE · ehr — real HEEDB ICD-10 events",
+      "gridPos": {"x": 0, "y": 19, "w": 24, "h": 8},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"custom": {"align": "left", "filterable": true}}, "overrides": []},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/explorer/bronze_ehr_sample.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "patient_id", "text": "patient", "type": "string"}, {"selector": "event_type", "text": "event_type", "type": "string"}, {"selector": "source_system", "text": "source", "type": "string"}, {"selector": "version", "text": "ver", "type": "number"}, {"selector": "payload.icd_primary", "text": "icd_primary", "type": "string"}, {"selector": "payload.high_acuity", "text": "high_acuity", "type": "string"}, {"selector": "payload.code", "text": "lab_code", "type": "string"}, {"selector": "payload.value", "text": "value", "type": "number"}]}]
+    },
+    {
+      "id": 40, "type": "table", "title": "SILVER · eeg — deduped + quality_flag",
+      "gridPos": {"x": 0, "y": 27, "w": 12, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"custom": {"align": "left", "filterable": true}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "quality_flag"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}}, {"id": "mappings", "value": [{"type": "value", "options": {"OK": {"color": "green", "index": 0}, "LOW_SR": {"color": "orange", "index": 1}, "SHORT_WINDOW": {"color": "red", "index": 2}}}]}]}
+      ]},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/explorer/silver_eeg_sample.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "patient_id", "text": "patient", "type": "string"}, {"selector": "site_id", "text": "site", "type": "string"}, {"selector": "sampling_rate_hz", "text": "Hz", "type": "number"}, {"selector": "quality_flag", "text": "quality_flag", "type": "string"}, {"selector": "signal_quality_score", "text": "quality", "type": "number"}, {"selector": "ingestion_date", "text": "date", "type": "string"}]}]
+    },
+    {
+      "id": 50, "type": "table", "title": "GOLD · patient_features — daily rollups",
+      "gridPos": {"x": 12, "y": 27, "w": 12, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"custom": {"align": "left", "filterable": true}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "n_eeg_chunks"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-BlYlRd"}}]},
+        {"matcher": {"id": "byName", "options": "has_critical_lab_today"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}, {"value": 1, "color": "red"}]}}, {"id": "color", "value": {"mode": "thresholds"}}]}
+      ]},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/explorer/gold_sample.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "patient_id", "text": "patient", "type": "string"}, {"selector": "event_date", "text": "date", "type": "string"}, {"selector": "n_eeg_chunks", "text": "n_eeg_chunks", "type": "number"}, {"selector": "mean_sampling_rate", "text": "mean_Hz", "type": "number"}, {"selector": "has_critical_lab_today", "text": "has_critical_lab_today", "type": "number"}, {"selector": "n_medication_changes", "text": "med_changes", "type": "number"}]}]
+    },
+    {
+      "id": 60, "type": "table", "title": "Observations / Notes — append with scripts/add_note.py",
+      "gridPos": {"x": 0, "y": 36, "w": 24, "h": 9},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "fieldConfig": {"defaults": {"custom": {"align": "left", "filterable": true}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "layer"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}}, {"id": "custom.width", "value": 90}]},
+        {"matcher": {"id": "byName", "options": "ts"}, "properties": [{"id": "custom.width", "value": 190}]},
+        {"matcher": {"id": "byName", "options": "note"}, "properties": [{"id": "custom.width", "value": 700}]}
+      ]},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/notes.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "ts", "text": "ts", "type": "string"}, {"selector": "layer", "text": "layer", "type": "string"}, {"selector": "tag", "text": "tag", "type": "string"}, {"selector": "author", "text": "author", "type": "string"}, {"selector": "note", "text": "note", "type": "string"}]}]
+    }
+  ]
+}

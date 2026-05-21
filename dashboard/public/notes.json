@@ -1,0 +1,23 @@
+[
+  {
+    "ts": "2026-05-21T06:17:33+00:00",
+    "layer": "anomaly",
+    "tag": "heedb",
+    "author": "quang",
+    "note": "640/1097 patients carry real HEEDB ICD-10 diagnoses; Seizure Disorders most common"
+  },
+  {
+    "ts": "2026-05-21T06:17:32+00:00",
+    "layer": "gold",
+    "tag": "broadcast",
+    "author": "quang",
+    "note": "Gold patient_features uses broadcast(patient_dim); df.explain shows BroadcastHashJoin"
+  },
+  {
+    "ts": "2026-05-21T06:17:30+00:00",
+    "layer": "silver",
+    "tag": "dedup",
+    "author": "quang",
+    "note": "Silver EEG dedup dropped 565 duplicate windows (29163 bronze -> 28598 silver)"
+  }
+]

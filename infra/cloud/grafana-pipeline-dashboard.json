@@ -357,20 +357,7 @@
             ]
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "compression_ratio_bronze_to_silver"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "x compression"
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
         "colorMode": "background_solid",
