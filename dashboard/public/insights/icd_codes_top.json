@@ -1,92 +1,122 @@
 [
   {
-    "code": "G40.901",
-    "description": "Epilepsy, unspecified, with status epilepticus",
-    "patient_count": 402983,
+    "code": "Miscellaneous",
+    "description": "Miscellaneous",
+    "patient_count": 196,
+    "category": "Miscellaneous"
+  },
+  {
+    "code": "Seizure Disorders",
+    "description": "Seizure Disorders",
+    "patient_count": 167,
+    "category": "Seizure Disorders"
+  },
+  {
+    "code": "Seizure",
+    "description": "Seizure",
+    "patient_count": 127,
     "category": "Seizure"
   },
   {
-    "code": "G40.909",
-    "description": "Epilepsy, unspecified, w/o status epilepticus",
-    "patient_count": 345173,
-    "category": "Seizure"
+    "code": "Headache Disorders",
+    "description": "Headache Disorders",
+    "patient_count": 99,
+    "category": "Headache Disorders"
   },
   {
-    "code": "G93.40",
-    "description": "Encephalopathy, unspecified",
-    "patient_count": 325086,
+    "code": "Sleep Disorders",
+    "description": "Sleep Disorders",
+    "patient_count": 80,
+    "category": "Sleep Disorders"
+  },
+  {
+    "code": "Cerebral Degeneration",
+    "description": "Cerebral Degeneration",
+    "patient_count": 64,
+    "category": "Cerebral Degeneration"
+  },
+  {
+    "code": "Cerebral Lobe Dysfunction",
+    "description": "Cerebral Lobe Dysfunction",
+    "patient_count": 52,
+    "category": "Cerebral Lobe Dysfunction"
+  },
+  {
+    "code": "Stroke",
+    "description": "Stroke",
+    "patient_count": 51,
+    "category": "Stroke"
+  },
+  {
+    "code": "Encephalopathy",
+    "description": "Encephalopathy",
+    "patient_count": 50,
     "category": "Encephalopathy"
   },
   {
-    "code": "R56.9",
-    "description": "Unspecified convulsions",
-    "patient_count": 262223,
-    "category": "Seizure"
+    "code": "Other Neurological Disorders",
+    "description": "Other Neurological Disorders",
+    "patient_count": 48,
+    "category": "Other Neurological Disorders"
   },
   {
-    "code": "I63.9",
-    "description": "Cerebral infarction, unspecified",
-    "patient_count": 218613,
-    "category": "Stroke"
+    "code": "Movement And Cerebellar Disorders",
+    "description": "Movement And Cerebellar Disorders",
+    "patient_count": 45,
+    "category": "Movement And Cerebellar Disorders"
   },
   {
-    "code": "I61.9",
-    "description": "Nontraumatic intracerebral hemorrhage",
-    "patient_count": 149720,
-    "category": "Stroke"
+    "code": "Cerebrovascular Diseases",
+    "description": "Cerebrovascular Diseases",
+    "patient_count": 39,
+    "category": "Cerebrovascular Diseases"
   },
   {
-    "code": "S06.9X0A",
-    "description": "Unspecified intracranial injury",
-    "patient_count": 125975,
+    "code": "Behavioral/Cognitive Syndromes",
+    "description": "Behavioral/Cognitive Syndromes",
+    "patient_count": 31,
+    "category": "Behavioral/Cognitive Syndromes"
+  },
+  {
+    "code": "Intracranial And Spinal Tumors",
+    "description": "Intracranial And Spinal Tumors",
+    "patient_count": 30,
+    "category": "Intracranial And Spinal Tumors"
+  },
+  {
+    "code": "Developmental Delay",
+    "description": "Developmental Delay",
+    "patient_count": 16,
+    "category": "Developmental Delay"
+  },
+  {
+    "code": "Infections",
+    "description": "Infections",
+    "patient_count": 16,
+    "category": "Infections"
+  },
+  {
+    "code": "TBI",
+    "description": "TBI",
+    "patient_count": 15,
     "category": "TBI"
   },
   {
-    "code": "R40.20",
-    "description": "Unspecified coma",
-    "patient_count": 101308,
+    "code": "Altered LOC",
+    "description": "Altered LOC",
+    "patient_count": 15,
     "category": "Altered LOC"
   },
   {
-    "code": "F03.90",
-    "description": "Unspecified dementia",
-    "patient_count": 101127,
-    "category": "Cognitive"
-  },
-  {
-    "code": "G45.9",
-    "description": "Transient cerebral ischemic attack",
-    "patient_count": 76665,
+    "code": "TIA",
+    "description": "TIA",
+    "patient_count": 13,
     "category": "TIA"
   },
   {
-    "code": "G93.41",
-    "description": "Metabolic encephalopathy",
-    "patient_count": 76445,
-    "category": "Encephalopathy"
-  },
-  {
-    "code": "G35",
-    "description": "Multiple sclerosis",
-    "patient_count": 75798,
-    "category": "Demyelinating"
-  },
-  {
-    "code": "G70.00",
-    "description": "Myasthenia gravis w/o exacerbation",
-    "patient_count": 51343,
+    "code": "Neuromuscular",
+    "description": "Neuromuscular",
+    "patient_count": 11,
     "category": "Neuromuscular"
-  },
-  {
-    "code": "G44.1",
-    "description": "Vascular headache, NEC",
-    "patient_count": 50920,
-    "category": "Headache"
-  },
-  {
-    "code": "I60.9",
-    "description": "Subarachnoid hemorrhage, unspecified",
-    "patient_count": 25778,
-    "category": "Stroke"
   }
 ]

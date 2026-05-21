@@ -1,20 +1,38 @@
 [
   {
     "site_id": "I0002",
-    "critical": 33,
+    "critical": 2,
     "warning": 0,
-    "advisory": 788,
-    "normal": 1221,
-    "suppressed": 20,
-    "total": 2062
+    "advisory": 49,
+    "normal": 40,
+    "suppressed": 0,
+    "total": 91
+  },
+  {
+    "site_id": "I0003",
+    "critical": 2,
+    "warning": 0,
+    "advisory": 50,
+    "normal": 42,
+    "suppressed": 1,
+    "total": 95
   },
   {
     "site_id": "S0001",
-    "critical": 42,
+    "critical": 4,
     "warning": 0,
-    "advisory": 1029,
-    "normal": 1841,
-    "suppressed": 26,
-    "total": 2938
+    "advisory": 39,
+    "normal": 45,
+    "suppressed": 1,
+    "total": 89
+  },
+  {
+    "site_id": "S0002",
+    "critical": 3,
+    "warning": 0,
+    "advisory": 54,
+    "normal": 41,
+    "suppressed": 1,
+    "total": 99
   }
 ]

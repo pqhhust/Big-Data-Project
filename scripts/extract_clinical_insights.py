@@ -29,12 +29,25 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from brainwatch.analytics.icd_codes import ICD10_CATALOGUE, assign_icd_codes, category_for
+from brainwatch.analytics.icd_codes import assign_icd_codes
+from brainwatch.analytics.heedb import load_heedb_icd, categories_for
 
 
-def _build_icd_lookup(patient_ids: list[str]) -> dict[str, list[str]]:
-    """patient_id -> list of ICD codes (deterministic per patient)."""
-    return {pid: [c.code for c in assign_icd_codes(pid)] for pid in patient_ids}
+def _build_icd_lookup(patient_ids: list[str], heedb_path: str | None) -> tuple[dict, str]:
+    """patient_id -> list of ICD categories.
+
+    Prefers the *real* HEEDB neurology table when available; falls back to the
+    deterministic synthetic catalogue for patients with no HEEDB record.
+    Returns (lookup, mode) where mode is 'heedb-real' or 'synthetic'.
+    """
+    heedb = load_heedb_icd(heedb_path) if heedb_path else {}
+    if heedb:
+        lookup = {}
+        for pid in patient_ids:
+            real = categories_for(pid, heedb)
+            lookup[pid] = real if real else [c.category for c in assign_icd_codes(pid)]
+        return lookup, "heedb-real"
+    return {pid: [c.category for c in assign_icd_codes(pid)] for pid in patient_ids}, "synthetic"
 
 
 def _dump(out: Path, name: str, data) -> None:
@@ -47,6 +60,8 @@ def main() -> int:
     parser.add_argument("--gold",   type=Path, default=Path("data/lake/gold"))
     parser.add_argument("--alerts", type=Path, default=Path("artifacts/demo/alerts_export.jsonl"))
     parser.add_argument("--out",    type=Path, default=Path("dashboard/public/insights"))
+    parser.add_argument("--heedb",  default="data/raw/metadata/HEEDB_ICD10_for_Neurology.csv",
+                        help="Real BDSP HEEDB ICD-10 table; falls back to synthetic if absent")
     parser.add_argument("--driver-memory", default="8g")
     args = parser.parse_args()
 
@@ -81,25 +96,22 @@ def main() -> int:
     ]
     _dump(args.out, "ehr_event_types.json", ehr_events)
 
-    # ── Patient dim → assign ICDs deterministically
+    # ── Patient dim → real HEEDB ICD categories (synthetic fallback)
     patient_dim = spark.read.parquet(str(args.silver / "_dim/patient"))
     patient_ids = [r["patient_id"] for r in patient_dim.select("patient_id").collect() if r["patient_id"]]
-    icd_lookup = _build_icd_lookup(patient_ids)
-    print(f"[insights] assigned ICD codes to {len(icd_lookup)} patients")
+    icd_lookup, icd_mode = _build_icd_lookup(patient_ids, args.heedb)
+    print(f"[insights] ICD source = {icd_mode}; {len(icd_lookup)} patients")
 
-    # ICD code frequency (each patient counted once per code)
-    code_counter: Counter = Counter()
-    cat_counter:  Counter = Counter()
-    for codes in icd_lookup.values():
-        for c in codes:
-            code_counter[c] += 1
-            cat_counter[category_for(c)] += 1
+    # Category frequency (each patient counted once per category)
+    cat_counter: Counter = Counter()
+    for cats in icd_lookup.values():
+        for c in cats:
+            cat_counter[c] += 1
 
-    icd_codes_top = []
-    for c, n in code_counter.most_common(20):
-        desc = next((x.description for x in ICD10_CATALOGUE if x.code == c), c)
-        icd_codes_top.append({"code": c, "description": desc, "patient_count": n,
-                              "category": category_for(c)})
+    icd_codes_top = [
+        {"code": cat, "description": cat, "patient_count": n, "category": cat}
+        for cat, n in cat_counter.most_common(20)
+    ]
     _dump(args.out, "icd_codes_top.json", icd_codes_top)
 
     # ── Alerts: load, join with ICDs + sites
@@ -118,8 +130,7 @@ def main() -> int:
         if not pid:
             continue
         patient_in_alerts.add(pid)
-        for c in icd_lookup.get(pid, []):
-            cat = category_for(c)
+        for cat in icd_lookup.get(pid, []):
             cat_alerts[cat] += 1
             if a.get("severity") == "critical":
                 cat_alerts_critical[cat] += 1
@@ -207,8 +218,9 @@ def main() -> int:
 
     cohort = sorted(pat_alerts.values(), key=lambda r: (r["critical"], r["total"]), reverse=True)[:25]
     for r in cohort:
-        r["icd_codes"]      = ", ".join(icd_lookup.get(r["patient_id"], []))
-        r["icd_categories"] = ", ".join(sorted({category_for(c) for c in icd_lookup.get(r["patient_id"], [])}))
+        cats = icd_lookup.get(r["patient_id"], [])
+        r["icd_codes"]      = ", ".join(cats)
+        r["icd_categories"] = ", ".join(sorted(set(cats)))
         r["site_id"]        = site_lookup.get(r["patient_id"], "UNK")
     _dump(args.out, "cohort.json", cohort)
 
@@ -216,8 +228,9 @@ def main() -> int:
     summary = {
         "patients_in_dim":       len(icd_lookup),
         "patients_in_alerts":    len(patient_in_alerts),
-        "icd_codes_distinct":    len(code_counter),
+        "icd_codes_distinct":    len(cat_counter),
         "icd_categories":        len(cat_counter),
+        "icd_source":            icd_mode,
         "sites":                 len(site_sev),
         "alerts_analyzed":       len(alerts),
         "ehr_event_types":       len(ehr_events),

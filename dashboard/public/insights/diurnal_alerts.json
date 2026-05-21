@@ -1,170 +1,170 @@
 [
   {
     "hour": 0,
-    "critical": 4,
+    "critical": 2,
     "warning": 0,
-    "advisory": 75,
-    "normal": 136
+    "advisory": 10,
+    "normal": 8
   },
   {
     "hour": 1,
-    "critical": 1,
+    "critical": 0,
     "warning": 0,
-    "advisory": 66,
-    "normal": 125
+    "advisory": 15,
+    "normal": 7
   },
   {
     "hour": 2,
-    "critical": 4,
+    "critical": 0,
     "warning": 0,
-    "advisory": 70,
-    "normal": 123
+    "advisory": 8,
+    "normal": 9
   },
   {
     "hour": 3,
-    "critical": 1,
+    "critical": 0,
     "warning": 0,
-    "advisory": 78,
-    "normal": 116
+    "advisory": 2,
+    "normal": 3
   },
   {
     "hour": 4,
-    "critical": 2,
+    "critical": 0,
     "warning": 0,
-    "advisory": 71,
-    "normal": 131
+    "advisory": 0,
+    "normal": 0
   },
   {
     "hour": 5,
-    "critical": 1,
+    "critical": 0,
     "warning": 0,
-    "advisory": 77,
-    "normal": 118
+    "advisory": 0,
+    "normal": 0
   },
   {
     "hour": 6,
-    "critical": 4,
+    "critical": 0,
     "warning": 0,
-    "advisory": 71,
-    "normal": 128
+    "advisory": 0,
+    "normal": 0
   },
   {
     "hour": 7,
-    "critical": 5,
+    "critical": 0,
     "warning": 0,
-    "advisory": 89,
-    "normal": 98
+    "advisory": 0,
+    "normal": 0
   },
   {
     "hour": 8,
-    "critical": 4,
+    "critical": 1,
     "warning": 0,
-    "advisory": 75,
-    "normal": 132
+    "advisory": 6,
+    "normal": 3
   },
   {
     "hour": 9,
-    "critical": 4,
+    "critical": 0,
     "warning": 0,
-    "advisory": 83,
-    "normal": 137
+    "advisory": 8,
+    "normal": 10
   },
   {
     "hour": 10,
-    "critical": 6,
+    "critical": 0,
     "warning": 0,
-    "advisory": 85,
-    "normal": 127
+    "advisory": 13,
+    "normal": 8
   },
   {
     "hour": 11,
-    "critical": 4,
+    "critical": 2,
     "warning": 0,
-    "advisory": 77,
-    "normal": 121
+    "advisory": 13,
+    "normal": 6
   },
   {
     "hour": 12,
-    "critical": 3,
+    "critical": 0,
     "warning": 0,
-    "advisory": 80,
-    "normal": 145
+    "advisory": 9,
+    "normal": 10
   },
   {
     "hour": 13,
-    "critical": 1,
+    "critical": 0,
     "warning": 0,
-    "advisory": 77,
-    "normal": 141
+    "advisory": 11,
+    "normal": 11
   },
   {
     "hour": 14,
-    "critical": 5,
+    "critical": 0,
     "warning": 0,
-    "advisory": 68,
-    "normal": 129
+    "advisory": 9,
+    "normal": 6
   },
   {
     "hour": 15,
-    "critical": 2,
+    "critical": 0,
     "warning": 0,
-    "advisory": 85,
-    "normal": 140
+    "advisory": 12,
+    "normal": 9
   },
   {
     "hour": 16,
-    "critical": 2,
+    "critical": 0,
     "warning": 0,
-    "advisory": 85,
-    "normal": 139
+    "advisory": 14,
+    "normal": 10
   },
   {
     "hour": 17,
-    "critical": 4,
+    "critical": 2,
     "warning": 0,
-    "advisory": 90,
-    "normal": 119
+    "advisory": 8,
+    "normal": 9
   },
   {
     "hour": 18,
-    "critical": 6,
+    "critical": 1,
     "warning": 0,
-    "advisory": 72,
-    "normal": 139
+    "advisory": 9,
+    "normal": 11
   },
   {
     "hour": 19,
-    "critical": 2,
+    "critical": 0,
     "warning": 0,
-    "advisory": 65,
-    "normal": 118
+    "advisory": 8,
+    "normal": 8
   },
   {
     "hour": 20,
-    "critical": 3,
+    "critical": 2,
     "warning": 0,
-    "advisory": 76,
-    "normal": 126
+    "advisory": 10,
+    "normal": 10
   },
   {
     "hour": 21,
-    "critical": 2,
+    "critical": 0,
     "warning": 0,
-    "advisory": 57,
-    "normal": 135
+    "advisory": 8,
+    "normal": 11
   },
   {
     "hour": 22,
-    "critical": 3,
+    "critical": 1,
     "warning": 0,
-    "advisory": 74,
-    "normal": 124
+    "advisory": 10,
+    "normal": 11
   },
   {
     "hour": 23,
-    "critical": 2,
+    "critical": 0,
     "warning": 0,
-    "advisory": 71,
-    "normal": 115
+    "advisory": 9,
+    "normal": 8
   }
 ]
