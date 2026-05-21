@@ -32,10 +32,14 @@ def _distinct_patients(bronze_eeg_glob: str) -> dict[str, str]:
     for fp in glob.glob(bronze_eeg_glob, recursive=True):
         with open(fp) as f:
             line = f.readline().strip()
-            if not line:
-                continue
+        if not line:
+            continue
+        try:
             e = json.loads(line)
-            out[e["patient_id"]] = e["site_id"]
+        except json.JSONDecodeError:
+            continue
+        if e.get("patient_id"):
+            out[e["patient_id"]] = e.get("site_id", "UNK")
     return out
 
 

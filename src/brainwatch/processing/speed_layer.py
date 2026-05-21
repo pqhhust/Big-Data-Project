@@ -73,12 +73,12 @@ def build_streaming_pipeline(
         alerts = []
         for row in df.collect():
             if row.anomaly_score > 0.7:
-                severity = classify_v2(row.anomaly_score, row.has_critical_lab or False)
+                decision = classify_v2(row.anomaly_score, row.has_critical_lab or False)
                 alert = {
                     "patient_id": row.patient_id,
-                    "session_id": row.session_id if hasattr(row, 'session_id') else row.encounter_id,
+                    "session_id": getattr(row, "session_id", None) or getattr(row, "encounter_id", ""),
                     "alert_time": datetime.now(timezone.utc).isoformat(),
-                    "severity": severity,
+                    "severity": decision.severity,
                     "anomaly_score": row.anomaly_score,
                     "explanation": f"Score={row.anomaly_score:.2f}, critical_lab={row.has_critical_lab}"
                 }
@@ -183,8 +183,11 @@ def build_kafka_streaming_pipeline(
         base = 0.60 * chunk_term + 0.40 * quality_term
         # Per-patient/per-window pseudo-randomness so a real clinical mix is
         # visible on the dashboard (in production this would be EHR-driven).
-        key = f"{patient_id or 'X'}|{int((win_start or 0))}"
-        h = (hash(key) & 0xffffffff) / 0xffffffff
+        # Use zlib.crc32 (not builtin hash(), which is salted per-process and
+        # would make scores non-deterministic across Spark executors/runs).
+        import zlib
+        key = f"{patient_id or 'X'}|{int(win_start or 0)}".encode("utf-8")
+        h = (zlib.crc32(key) & 0xffffffff) / 0xffffffff
         variance = (h - 0.5) * 0.5   # [-0.25, +0.25]
         return float(max(0.0, min(base + variance, 1.0)))
 
@@ -207,31 +210,32 @@ def build_kafka_streaming_pipeline(
             return
         host = cassandra_contact_points.split(",")[0]
         cluster = Cluster([host])
-        session = cluster.connect("brainwatch")
-        insert = session.prepare(
-            "INSERT INTO alerts (patient_id, alert_time, severity, anomaly_score, explanation) "
-            "VALUES (?, ?, ?, ?, ?)"
-        )
-        written = 0
-        for row in rows:
-            score = float(row["anomaly_score"] or 0.0)
-            mean_sr = float(row["mean_sampling_rate_hz"] or 0.0)
-            signal_quality = max(0.0, min(1.0, mean_sr / 250.0))
-            if signal_quality < 0.30:
-                severity = "suppressed"
-            else:
-                severity = classify_v2(score, bool(row["has_critical_lab"])).severity
-            win = row["win"]
-            alert_time = win.end if hasattr(win, "end") else datetime.now(timezone.utc)
-            explanation = (
-                f"window {win.start.isoformat()} → {win.end.isoformat()}; "
-                f"eeg_chunks={row['eeg_chunk_count']}; mean_sr={mean_sr:.0f}"
+        try:
+            session = cluster.connect("brainwatch")
+            insert = session.prepare(
+                "INSERT INTO alerts (patient_id, alert_time, severity, anomaly_score, explanation) "
+                "VALUES (?, ?, ?, ?, ?)"
             )
-            session.execute(insert, (row["patient_id"], alert_time, severity, score, explanation))
-            written += 1
-        print(f"[foreachBatch batch_id={batch_id}] wrote {written} alerts to Cassandra")
-        session.shutdown()
-        cluster.shutdown()
+            written = 0
+            for row in rows:
+                score = float(row["anomaly_score"] or 0.0)
+                mean_sr = float(row["mean_sampling_rate_hz"] or 0.0)
+                signal_quality = max(0.0, min(1.0, mean_sr / 250.0))
+                if signal_quality < 0.30:
+                    severity = "suppressed"
+                else:
+                    severity = classify_v2(score, bool(row["has_critical_lab"])).severity
+                win = row["win"]
+                alert_time = win.end if hasattr(win, "end") else datetime.now(timezone.utc)
+                explanation = (
+                    f"window {win.start.isoformat()} → {win.end.isoformat()}; "
+                    f"eeg_chunks={row['eeg_chunk_count']}; mean_sr={mean_sr:.0f}"
+                )
+                session.execute(insert, (row["patient_id"], alert_time, severity, score, explanation))
+                written += 1
+            print(f"[foreachBatch batch_id={batch_id}] wrote {written} alerts to Cassandra")
+        finally:
+            cluster.shutdown()
 
     query = (scored.writeStream
              .foreachBatch(_write_batch)

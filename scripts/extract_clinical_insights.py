@@ -79,6 +79,8 @@ def main() -> int:
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("ERROR")
+    import atexit
+    atexit.register(spark.stop)  # ensure the session is released on any exit path
 
     # ── EEG silver: quality_flag distribution + per-site rows
     eeg = spark.read.parquet(str(args.silver / "eeg"))

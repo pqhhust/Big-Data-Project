@@ -56,8 +56,14 @@ def main() -> int:
     import mne
     mne.set_log_level("ERROR")
 
+    if not args.manifest.exists():
+        print(f"[edf2bronze] manifest not found: {args.manifest}", file=sys.stderr)
+        return 1
     manifest = json.loads(args.manifest.read_text())
-    records = manifest["records"]
+    records = manifest.get("records", [])
+    if not records:
+        print(f"[edf2bronze] manifest has no records: {args.manifest}", file=sys.stderr)
+        return 1
     print(f"[edf2bronze] {len(records)} EDF files to parse", flush=True)
 
     eeg_dir = args.bronze / "eeg"

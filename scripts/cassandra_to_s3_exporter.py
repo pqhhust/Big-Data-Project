@@ -33,12 +33,13 @@ from brainwatch.analytics.rollups import (  # noqa: E402
 def _connect_cassandra(host: str):
     last_err = None
     for attempt in range(20):
+        cluster = Cluster([host])
         try:
-            cluster = Cluster([host])
             session = cluster.connect("brainwatch")
             return cluster, session
         except Exception as e:
             last_err = e
+            cluster.shutdown()  # don't leak the half-built driver across retries
             print(f"[exporter] cassandra connect attempt {attempt + 1} failed: {e}", file=sys.stderr)
             time.sleep(5)
     raise last_err
