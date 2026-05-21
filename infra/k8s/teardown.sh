@@ -2,6 +2,7 @@
 # BrainWatch — teardown script.
 #
 # Owner: Dat.
+# Last updated: 2026-05-21 by Nguyễn Đình Đạt
 #
 # Reverse order of deploy.sh. ALWAYS prompt before deleting PVCs — losing
 # the bronze zone means re-running the whole pipeline.
