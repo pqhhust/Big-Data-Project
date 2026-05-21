@@ -1,147 +1,897 @@
 {
-  "title": "BrainWatch · Pipeline & Infrastructure",
+  "title": "BrainWatch \u00b7 Pipeline & Infrastructure",
   "uid": "brainwatch-pipeline",
-  "tags": ["brainwatch", "pipeline"],
+  "tags": [
+    "brainwatch",
+    "pipeline"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "5s",
-  "time": {"from": "now-1h", "to": "now"},
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "editable": true,
   "graphTooltip": 1,
   "style": "dark",
-  "templating": {"list": []},
-  "annotations": {"list": []},
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
   "panels": [
     {
-      "id": 1, "type": "text", "title": "",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "html",
-        "content": "<div style='padding:8px 16px;background:linear-gradient(90deg,#1f2330,#2c3e50);border-radius:6px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:22px;font-weight:700;letter-spacing:-0.01em;'>BrainWatch · Lambda-Architecture Pipeline</div><div style='color:#9aa7b8;font-size:13px;margin-top:2px;'>Hospital-scale EEG anomaly detection · 8.2 GiB bronze · 37.25 M events · deployed on Amazon EKS · IT4043E capstone</div></div>"
+        "content": "<div style='padding:8px 16px;background:linear-gradient(90deg,#1f2330,#2c3e50);border-radius:6px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:22px;font-weight:700;letter-spacing:-0.01em;'>BrainWatch \u00b7 Lambda-Architecture Pipeline</div><div style='color:#9aa7b8;font-size:13px;margin-top:2px;'>Hospital-scale EEG anomaly detection \u00b7 8.2 GiB bronze \u00b7 37.25 M events \u00b7 deployed on Amazon EKS \u00b7 IT4043E capstone</div></div>"
       }
     },
     {
-      "id": 10, "type": "stat", "title": "Bronze size (GiB)",
-      "gridPos": {"x": 0, "y": 3, "w": 4, "h": 5},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "id": 10,
+      "type": "stat",
+      "title": "Bronze size (GiB)",
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "fixed", "fixedColor": "#B877D9"},
-          "unit": "decgbytes", "decimals": 2,
-          "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#B877D9"}]}
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#B877D9"
+          },
+          "unit": "decgbytes",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#B877D9"
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "wideLayout": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^bronze_size_gib$/", "values": false}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "bronze_size_gib", "text": "bronze_size_gib", "type": "number"}]}]
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^bronze_size_gib$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "bronze_size_gib",
+              "text": "bronze_size_gib",
+              "type": "number"
+            }
+          ]
+        }
+      ]
     },
     {
-      "id": 11, "type": "stat", "title": "Total events",
-      "gridPos": {"x": 4, "y": 3, "w": 4, "h": 5},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
-      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#5794F2"}, "unit": "short", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#5794F2"}]}}, "overrides": []},
-      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "wideLayout": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^bronze_total_events$/", "values": false}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "bronze_total_events", "text": "events", "type": "number"}]}]
-    },
-    {
-      "id": 12, "type": "stat", "title": "EKS batch (s)",
-      "gridPos": {"x": 8, "y": 3, "w": 4, "h": 5},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "unit": "s", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "green"}, {"value": 600, "color": "orange"}]}}, "overrides": []},
-      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "wideLayout": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^eks_batch_runtime_seconds$/", "values": false}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "eks_batch_runtime_seconds", "text": "seconds", "type": "number"}]}]
-    },
-    {
-      "id": 13, "type": "stat", "title": "Generator events/s",
-      "gridPos": {"x": 12, "y": 3, "w": 4, "h": 5},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
-      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#73BF69"}, "unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#73BF69"}]}}, "overrides": []},
-      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value", "wideLayout": true, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^generator_throughput_events_per_sec$/", "values": false}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "generator_throughput_events_per_sec", "text": "events_per_sec", "type": "number"}]}]
-    },
-    {
-      "id": 14, "type": "stat", "title": "Bronze → Silver compression",
-      "gridPos": {"x": 16, "y": 3, "w": 4, "h": 5},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
-      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#F2CC0C"}, "unit": "none", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#F2CC0C"}]}}, "overrides": [{"matcher": {"id": "byName", "options": "compression_ratio_bronze_to_silver"}, "properties": [{"id": "displayName", "value": "x compression"}]}]},
-      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value_and_name", "wideLayout": false, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^compression_ratio_bronze_to_silver$/", "values": false}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "compression_ratio_bronze_to_silver", "text": "compression_ratio_bronze_to_silver", "type": "number"}]}]
-    },
-    {
-      "id": 15, "type": "stat", "title": "Tests passing",
-      "gridPos": {"x": 20, "y": 3, "w": 4, "h": 5},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
-      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "#56A64B"}, "unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "#56A64B"}]}}, "overrides": []},
-      "options": {"colorMode": "background_solid", "graphMode": "none", "justifyMode": "center", "textMode": "value_and_name", "wideLayout": false, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^tests_passing$/", "values": false}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "tests_passing", "text": "67/67 pass", "type": "number"}]}]
-    },
-
-    {
-      "id": 30, "type": "barchart", "title": "Data-lake zone sizes (MiB, log)",
-      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 9},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "id": 11,
+      "type": "stat",
+      "title": "Total events",
+      "gridPos": {
+        "x": 4,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"axisLabel": "", "axisPlacement": "auto", "axisScale": "log", "lineWidth": 0, "fillOpacity": 90, "thresholdsStyle": {"mode": "off"}},
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "unit": "short",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#5794F2"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^bronze_total_events$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "bronze_total_events",
+              "text": "bronze_total_events",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "EKS batch (s)",
+      "gridPos": {
+        "x": 8,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "s",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 600,
+                "color": "orange"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^eks_batch_runtime_seconds$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "eks_batch_runtime_seconds",
+              "text": "eks_batch_runtime_seconds",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Generator events/s",
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          },
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^generator_throughput_events_per_sec$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "generator_throughput_events_per_sec",
+              "text": "generator_throughput_events_per_sec",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Bronze \u2192 Silver compression",
+      "gridPos": {
+        "x": 16,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#F2CC0C"
+          },
+          "unit": "none",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2CC0C"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "compression_ratio_bronze_to_silver"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "x compression"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^compression_ratio_bronze_to_silver$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "compression_ratio_bronze_to_silver",
+              "text": "compression_ratio_bronze_to_silver",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Tests passing",
+      "gridPos": {
+        "x": 20,
+        "y": 3,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#56A64B"
+          },
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#56A64B"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "wideLayout": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^tests_passing$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "tests_passing",
+              "text": "tests_passing",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "barchart",
+      "title": "Data-lake zone sizes (MiB, log)",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisScale": "log",
+            "lineWidth": 0,
+            "fillOpacity": 90,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
           "unit": "mbytes"
         },
         "overrides": []
       },
-      "options": {"orientation": "horizontal", "xTickLabelRotation": 0, "showValue": "always", "stacking": "none", "groupWidth": 0.8, "barWidth": 0.9, "barRadius": 0.15, "legend": {"displayMode": "list", "placement": "bottom", "showLegend": false}, "tooltip": {"mode": "single"}, "xField": "zone"},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/zone_sizes.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "zone", "text": "zone", "type": "string"}, {"selector": "size_mib", "text": "size_mib", "type": "number"}]}]
+      "options": {
+        "orientation": "horizontal",
+        "xTickLabelRotation": 0,
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.8,
+        "barWidth": 0.9,
+        "barRadius": 0.15,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "zone"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/zone_sizes.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "zone",
+              "text": "zone",
+              "type": "string"
+            },
+            {
+              "selector": "size_mib",
+              "text": "size_mib",
+              "type": "number"
+            }
+          ]
+        }
+      ]
     },
-
     {
-      "id": 40, "type": "table", "title": "Pipeline stage timings (EKS run, 2026-05-20)",
-      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 9},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "id": 40,
+      "type": "table",
+      "title": "Pipeline stage timings (EKS run, 2026-05-20)",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"align": "left", "displayMode": "auto", "inspect": false},
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"value": null, "color": "transparent"}]}
+          "custom": {
+            "align": "left",
+            "displayMode": "auto",
+            "inspect": false
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "transparent"
+              }
+            ]
+          }
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "duration_s"}, "properties": [
-            {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}},
-            {"id": "color", "value": {"mode": "continuous-BlPu"}},
-            {"id": "unit", "value": "s"},
-            {"id": "custom.align", "value": "center"}
-          ]},
-          {"matcher": {"id": "byName", "options": "ratio"}, "properties": [
-            {"id": "unit", "value": "none"},
-            {"id": "decimals", "value": 2},
-            {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-            {"id": "color", "value": {"mode": "continuous-GrYlRd"}}
-          ]},
-          {"matcher": {"id": "byName", "options": "input_gib"}, "properties": [{"id": "unit", "value": "decgbytes"}, {"id": "decimals", "value": 3}]},
-          {"matcher": {"id": "byName", "options": "output_gib"}, "properties": [{"id": "unit", "value": "decgbytes"}, {"id": "decimals", "value": 3}]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration_s"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "input_gib"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decgbytes"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "output_gib"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decgbytes"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          }
         ]
       },
-      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "md"},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_stages.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "stage", "text": "stage", "type": "string"}, {"selector": "owner", "text": "layer", "type": "string"}, {"selector": "duration_s", "text": "duration_s", "type": "number"}, {"selector": "input_gib", "text": "input_gib", "type": "number"}, {"selector": "output_gib", "text": "output_gib", "type": "number"}, {"selector": "ratio", "text": "ratio", "type": "number"}]}]
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_stages.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "stage",
+              "text": "stage",
+              "type": "string"
+            },
+            {
+              "selector": "owner",
+              "text": "layer",
+              "type": "string"
+            },
+            {
+              "selector": "duration_s",
+              "text": "duration_s",
+              "type": "number"
+            },
+            {
+              "selector": "input_gib",
+              "text": "input_gib",
+              "type": "number"
+            },
+            {
+              "selector": "output_gib",
+              "text": "output_gib",
+              "type": "number"
+            },
+            {
+              "selector": "ratio",
+              "text": "ratio",
+              "type": "number"
+            }
+          ]
+        }
+      ]
     },
-
     {
-      "id": 50, "type": "timeseries", "title": "Live alert ingestion rate (alerts / minute)",
-      "gridPos": {"x": 0, "y": 17, "w": 24, "h": 9},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
+      "id": 50,
+      "type": "timeseries",
+      "title": "Live alert ingestion rate (alerts / minute)",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "bars", "lineWidth": 0, "fillOpacity": 80, "showPoints": "never", "spanNulls": false, "stacking": {"mode": "normal", "group": "A"}, "axisGridShow": false},
-          "color": {"mode": "palette-classic"}, "unit": "short"
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 0,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisGridShow": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
-          {"matcher": {"id": "byName", "options": "warning"},  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
-          {"matcher": {"id": "byName", "options": "advisory"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#5794F2"}}]},
-          {"matcher": {"id": "byName", "options": "normal"},   "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#73BF69"}}]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warning"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "advisory"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "normal"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
-      "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/timeline.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "t", "text": "Time", "type": "timestamp"}, {"selector": "critical", "text": "critical", "type": "number"}, {"selector": "warning", "text": "warning", "type": "number"}, {"selector": "advisory", "text": "advisory", "type": "number"}, {"selector": "normal", "text": "normal", "type": "number"}]}]
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/timeline.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "t",
+              "text": "Time",
+              "type": "timestamp"
+            },
+            {
+              "selector": "critical",
+              "text": "critical",
+              "type": "number"
+            },
+            {
+              "selector": "warning",
+              "text": "warning",
+              "type": "number"
+            },
+            {
+              "selector": "advisory",
+              "text": "advisory",
+              "type": "number"
+            },
+            {
+              "selector": "normal",
+              "text": "normal",
+              "type": "number"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

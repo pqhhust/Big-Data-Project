@@ -123,11 +123,11 @@
     },
 
     {
-      "id": 50, "type": "timeseries", "title": "Diurnal alert pattern · hour of day",
+      "id": 50, "type": "barchart", "title": "Diurnal alert pattern · hour of day",
       "gridPos": {"x": 0, "y": 27, "w": 16, "h": 9},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "infinity-brainwatch"},
       "fieldConfig": {
-        "defaults": {"custom": {"drawStyle": "bars", "lineWidth": 0, "fillOpacity": 80, "showPoints": "never", "stacking": {"mode": "normal", "group": "A"}, "axisGridShow": false}, "color": {"mode": "palette-classic"}, "unit": "short"},
+        "defaults": {"custom": {"lineWidth": 0, "fillOpacity": 85, "axisGridShow": false, "thresholdsStyle": {"mode": "off"}}, "color": {"mode": "palette-classic"}, "unit": "short"},
         "overrides": [
           {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
           {"matcher": {"id": "byName", "options": "warning"},  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
@@ -135,7 +135,7 @@
           {"matcher": {"id": "byName", "options": "normal"},   "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#73BF69"}}]}
         ]
       },
-      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "xField": "hour"},
+      "options": {"orientation": "vertical", "stacking": "normal", "xField": "hour", "showValue": "never", "groupWidth": 0.8, "barWidth": 0.9, "barRadius": 0.1, "xTickLabelSpacing": 0, "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": ["sum"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [{"refId": "A", "type": "json", "source": "url", "format": "table", "parser": "backend", "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/insights/diurnal_alerts.json", "url_options": {"method": "GET", "data": ""}, "root_selector": "", "columns": [{"selector": "hour", "text": "hour", "type": "number"}, {"selector": "critical", "text": "critical", "type": "number"}, {"selector": "warning", "text": "warning", "type": "number"}, {"selector": "advisory", "text": "advisory", "type": "number"}, {"selector": "normal", "text": "normal", "type": "number"}]}]
     },
 
