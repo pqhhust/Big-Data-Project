@@ -51,6 +51,9 @@ items:
           containers:
             - name: spark-streaming
               image: bitnami/spark:3.5
+              # spark-submit chạy speed_layer ở chế độ local — dùng tất cả CPU core trong pod
+              # --packages tự download connector Kafka + Cassandra khi khởi động
+              # shuffle.partitions=8 phù hợp với single-node lab (mặc định 200 sẽ quá nhiều)
               command:
                 - /opt/bitnami/spark/bin/spark-submit
                 - --master
@@ -87,6 +90,8 @@ items:
                   readOnly: true
                 - name: checkpoints
                   mountPath: /data/checkpoints
+              # Spark UI chạy ở port 4040 — dùng để kiểm tra job đang chạy
+              # initialDelaySeconds: 60 vì Spark cần ~1 phút để khởi động hoàn toàn
               livenessProbe:
                 tcpSocket:
                   port: 4040

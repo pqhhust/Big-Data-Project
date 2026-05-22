@@ -29,8 +29,8 @@ items:
       name: spark-batch
       namespace: brainwatch
     spec:
-      schedule: "0 3 * * *"
-      concurrencyPolicy: Forbid
+      schedule: "0 3 * * *"       # chạy lúc 3h sáng UTC mỗi ngày — ít tải nhất
+      concurrencyPolicy: Forbid   # không cho chạy 2 job cùng lúc tránh ghi đè data
       successfulJobsHistoryLimit: 3
       failedJobsHistoryLimit: 3
       jobTemplate:
@@ -71,7 +71,7 @@ items:
                   volumeMounts:
                     - name: bronze
                       mountPath: /data/lake/bronze
-                      readOnly: true
+                      readOnly: true   # batch chỉ đọc bronze, không ghi
                     - name: silver
                       mountPath: /data/lake/silver
                     - name: gold
