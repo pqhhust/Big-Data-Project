@@ -24,6 +24,7 @@ kind: List
 items:
   # 1. Headless Service — cho phép các pod khác reach Cassandra qua DNS:
   #    cassandra-0.cassandra-svc.brainwatch.svc.cluster.local
+  #    clusterIP: None = không có load balancer, Spark kết nối thẳng tới pod
   - apiVersion: v1
     kind: Service
     metadata:
@@ -44,6 +45,8 @@ items:
           targetPort: 7000
 
   # 2. StatefulSet — 1 replica Cassandra 4.1
+  #    Dùng StatefulSet (không phải Deployment) để pod có tên cố định cassandra-0
+  #    Last updated: 2026-05-21 by Nguyễn Đình Đạt
   - apiVersion: apps/v1
     kind: StatefulSet
     metadata:

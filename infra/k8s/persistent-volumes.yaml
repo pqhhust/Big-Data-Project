@@ -17,9 +17,11 @@
 # use a shared ReadWriteMany PV backed by hostPath if the cluster supports it.
 # Otherwise mount each lake zone PVC into the spark pod that writes it.
 
+# Last updated: 2026-05-21 by Nguyễn Đình Đạt
 apiVersion: v1
 kind: List
 items:
+  # Vùng lưu dữ liệu thô — JSONL/Parquet từ Kafka consumer
   - apiVersion: v1
     kind: PersistentVolumeClaim
     metadata:
@@ -31,6 +33,7 @@ items:
         requests:
           storage: 20Gi
 
+  # Vùng dữ liệu đã dedup + validate chất lượng
   - apiVersion: v1
     kind: PersistentVolumeClaim
     metadata:
@@ -42,6 +45,7 @@ items:
         requests:
           storage: 20Gi
 
+  # Vùng rollup tổng hợp theo ngày — nhỏ nhất vì đã aggregate
   - apiVersion: v1
     kind: PersistentVolumeClaim
     metadata:
@@ -53,6 +57,7 @@ items:
         requests:
           storage: 10Gi
 
+  # Spark Structured Streaming checkpoint — lưu offset và state
   - apiVersion: v1
     kind: PersistentVolumeClaim
     metadata:
@@ -64,6 +69,7 @@ items:
         requests:
           storage: 5Gi
 
+  # Cassandra data — alerts + patient_state tables
   - apiVersion: v1
     kind: PersistentVolumeClaim
     metadata:
