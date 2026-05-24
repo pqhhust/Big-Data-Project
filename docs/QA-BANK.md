@@ -1003,51 +1003,49 @@ API (via `kubectl` + an in-cluster ServiceAccount), `hdfs dfsadmin -report`
 `pipeline_metrics.json` that powers the older Pipeline dashboard with live
 HDFS-derived numbers (was static before).
 
-### Q17.18 Why does bronze just *point* at the raw EDF instead of storing it?
-**Architectural choice — the "point pattern" vs the "archive pattern".**
+### Q17.18 Does bronze store the raw EDF, or just point at it?
+**Both, in the simulation: archive pattern.** Each incoming EDF is copied
+into `/data/lake/bronze_real/edf/site=<X>/date=<Y>/<file>.edf` AND parsed to
+JSONL features. Bronze size therefore grows with each EDF the streamer
+pulls — exactly the "real hospital ingest" semantics. We cap the archive at
+`ARCHIVE_RAW_CAP_GIB` (default 4 GiB, so HDFS RF=2 stays under 50% of the
+40 GiB cluster). Past the cap the streamer continues parsing JSONL but skips
+the EDF copy (logged as `archive_CAP_REACHED`).
 
-Each EDF is **10–100 MB of binary signal** (full-channel, 200–512 Hz, minutes
-of recording). We have two options for where the raw binary lives:
-
-| | Point pattern (what we do) | Archive pattern |
+| | Point pattern | **Archive pattern (what we do)** |
 |---|---|---|
-| Raw EDF lives in | S3 `raw_edf/` (durable, cheap, 11 nines) | Bronze (PVC → HDFS) |
-| Bronze JSONL row carries | derived features + `source_uri` reference | derived features (raw lives separately) |
-| Bronze on disk | tiny (~20 MB for 1.5k EDFs of features) | huge (17 GiB raw + 20 MB features) |
-| Spark reads | small JSONL → fast | bypasses the binary (still feature-driven) |
-| Clinician fetches raw signal | follow `source_uri` to S3 | follow path inside bronze |
-| Auditor | trace `source_uri` to immutable S3 object | trace to bronze copy |
+| Raw EDF lives in | S3 only | S3 **and** bronze on HDFS |
+| Bronze size growth | tiny (~20 MB for 1.5k EDFs) | grows ~12 MB per EDF, up to cap |
+| Spark batch | reads JSONL only | reads JSONL only (binary present but unused) |
+| Clinician fetches raw | follow `source_uri` to S3 | inside bronze OR S3 |
+| HDFS footprint (×RF=2) | minimal | larger; capped for safety |
 
-**Why we chose point:**
-1. **Storage economics** — S3 is built for large immutable blobs; HDFS is for
-   parallel compute. Storing the same 17 GiB in HDFS with RF=2 = 34 GiB
-   provisioned. On S3 it's 17 GiB and durable.
-2. **Spark efficiency** — feature analytics never reads the raw bytes;
-   reading 22 MB JSONL is *thousands of times* faster than scanning EDFs.
-3. **Industry standard** — every modern Lakehouse pattern (Databricks,
-   Snowflake, Iceberg/Hudi) does "metadata + pointer to object store" for
-   large blobs.
-4. **Immutability** — bronze is "land everything raw," but for blobs the
-   *land it once on object storage* part is satisfied by S3. The bronze
-   feature event captures the derived view.
+**Reasoning for archive:** this is a **hospital simulation**. In production
+neuro-ICU systems, raw EEG is archived alongside derived analytics so:
+- Clinicians can replay the signal for re-interpretation
+- Regulators can audit the source of every alert
+- ML re-training can use the raw signal directly
 
-**What bronze size therefore measures:** the **number of windowed feature
-events** produced from the EDFs that have arrived, not the raw archive size.
-At ~530 B per JSONL line × ~30 windows per EDF × 1,571 EDFs = ~25 MB.
+For pure analytics (no clinical re-review), the point pattern (S3 only)
+would suffice and save HDFS space. We picked archive for fidelity to the
+real-world workflow.
 
-**If clinical workflow demanded raw retrieval inside the lake**, we'd flip a
-single env var (`ARCHIVE_RAW_EDF=true` in the streamer) and copy each EDF
-into `bronze/edf/` too. The trade-off is the 17 GiB × RF=2 footprint.
+**What bronze size on the dashboard measures:** real bytes — the JSONL
+features **plus** the archived EDF binaries — growing in real-time as the
+streamer trickles EDFs from S3.
 
-### Q17.19 So how does the dashboard reflect "raw data size"?
+### Q17.19 What's the difference between "Raw EDF on S3" and "Bronze size"?
 Two stats on the Pipeline dashboard:
-- **Raw EDF on S3 (GiB):** `17.05` — the raw archive (read from S3 listing
-  in `cluster_state_to_s3.py`)
-- **Bronze size (GiB):** `0.02` — the derived JSONL on HDFS
+- **Raw EDF on S3 (GiB):** `17.05` — the **upstream** raw archive on
+  S3. Source of truth for `bronze-streamer`; doesn't change unless we ingest
+  more.
+- **Bronze size (GiB):** grows from `0.02` upward as the streamer processes
+  EDFs and archives them into `bronze_real/edf/`. Eventually plateaus at the
+  archive cap.
 
-Both grow over time as the streamer processes more EDFs into bronze events.
-The 17 GiB is what's *available to be ingested*; the bronze size is what's
-*been ingested*.
+Both reflect "real data on the cluster." The S3 number is what's
+*available to be ingested*; the bronze number is what's *been ingested
+into the lake*.
 
 ### Q17.17 How would you upgrade from CronJob to streaming bronze→silver→gold?
 Spark Structured Streaming + Delta Lake. Replace `run_batch.py` with:

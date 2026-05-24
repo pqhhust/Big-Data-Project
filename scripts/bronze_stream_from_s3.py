@@ -125,11 +125,13 @@ def main() -> int:
     sleep_s = int(os.environ.get("SLEEP_BETWEEN_EDF", "20"))
     window_s = float(os.environ.get("WINDOW_SECONDS", "10.0"))
     max_windows = int(os.environ.get("MAX_WINDOWS_PER_FILE", "600"))
-    # We deliberately do NOT copy the raw EDF binary into bronze.
-    # Bronze stores derived features + a `source_uri` reference back to the
-    # immutable raw blob on S3 (the "point pattern"). See QA-BANK §17.18 for
-    # the reasoning — EDFs are 10s–100s MB each, too large for a feature
-    # store; S3 is durable; clinicians/auditors can fetch raw via source_uri.
+    # Simulate a real hospital ingest: every incoming EDF is *archived* into
+    # bronze (raw signal) alongside the derived JSONL features. Bronze size
+    # therefore grows with each EDF the streamer pulls. Capped at
+    # ARCHIVE_RAW_CAP_GIB so HDFS (RF=2, 40 GiB total) doesn't fill.
+    archive_raw = os.environ.get("ARCHIVE_RAW_EDF", "true").lower() == "true"
+    archive_cap_bytes = int(float(os.environ.get("ARCHIVE_RAW_CAP_GIB", "4")) * 1024 ** 3)
+    edf_archive_dir = bronze_dir / "edf"
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     if state_path.exists():
@@ -225,13 +227,34 @@ def main() -> int:
                     out.write(json.dumps(evt) + "\n")
                     file_events += 1
 
+            # ── Archive the raw EDF into bronze (real-hospital simulation) ──
+            archived_note = ""
+            if archive_raw:
+                # Check current archive size; stop archiving past the cap.
+                current_archive_bytes = 0
+                if edf_archive_dir.exists():
+                    for f in edf_archive_dir.rglob("*.edf"):
+                        try: current_archive_bytes += f.stat().st_size
+                        except OSError: pass
+                if current_archive_bytes < archive_cap_bytes:
+                    dest = edf_archive_dir / f"site={site}" / f"date={date_part}" / Path(key).name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        import shutil
+                        shutil.copy2(local, dest)
+                        archived_note = f"  +archive={Path(key).name} ({dest.stat().st_size // 1024} KB)"
+                    except OSError as e:
+                        archived_note = f"  archive_FAIL: {str(e)[:60]}"
+                else:
+                    archived_note = f"  archive_CAP_REACHED ({current_archive_bytes // (1024**2)} MiB)"
+
             processed.add(key)
             state_path.write_text(json.dumps(sorted(processed)))
             try: os.unlink(local)
             except OSError: pass
 
             print(f"[stream] +{site}/{patient_id} ses-{session}  windows={file_events}  "
-                  f"(processed={len(processed)}/{len(keys)})", flush=True)
+                  f"(processed={len(processed)}/{len(keys)}){archived_note}", flush=True)
             fi += 1
 
             if _stopped:
