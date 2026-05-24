@@ -469,7 +469,7 @@
     },
     {
       "id": 30,
-      "type": "bargauge",
+      "type": "table",
       "title": "Data-lake zone sizes (live)",
       "gridPos": {
         "x": 0,
@@ -483,34 +483,24 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "decbytes",
-          "min": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "blue"
-              },
-              {
-                "value": 50000000,
-                "color": "green"
-              },
-              {
-                "value": 1000000000,
-                "color": "yellow"
-              },
-              {
-                "value": 3000000000,
-                "color": "orange"
-              }
-            ]
+          "custom": {
+            "align": "left",
+            "filterable": false
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "zone"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -518,27 +508,36 @@
             },
             "properties": [
               {
-                "id": "displayName",
-                "value": "${__field.labels.zone}"
+                "id": "unit",
+                "value": "decbytes"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "max",
+                "value": 4294967296
               }
             ]
           }
         ]
       },
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/^bytes$/"
-        },
-        "text": {
-          "titleSize": 14,
-          "valueSize": 18
+        "showHeader": true,
+        "cellHeight": "lg",
+        "footer": {
+          "show": false
         }
       },
       "targets": [
