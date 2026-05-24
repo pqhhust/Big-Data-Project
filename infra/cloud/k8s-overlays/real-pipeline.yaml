@@ -146,6 +146,8 @@ spec:
                 /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl cassandra-driver==3.29.1
               export PYTHONPATH="/code/site-packages:${PYTHONPATH:-}"
               mkdir -p /tmp/.ivy2 /tmp/.spark-warehouse
+              # Local checkpoint dir kept clean for the legacy code path; the
+              # hybrid stack writes the actual checkpoint into HDFS (see env below).
               rm -rf /data/checkpoints/kafka_speed_layer /data/checkpoints/ehr_subscriber
               exec /opt/spark/bin/spark-submit \
                 --master 'local[4]' \
@@ -153,11 +155,17 @@ spec:
                 --conf spark.sql.shuffle.partitions=8 \
                 --conf spark.jars.ivy=/tmp/.ivy2 \
                 --conf spark.sql.warehouse.dir=/tmp/.spark-warehouse \
+                --conf spark.hadoop.dfs.client.use.datanode.hostname=true \
                 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
                 --py-files /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl \
                 /code/scripts/run_speed_layer_kafka.py
           env:
-            - {name: CHECKPOINT_PATH, value: /data/checkpoints}
+            # Hybrid storage:
+            #   CHECKPOINT_PATH → HDFS (the distributed-storage rubric box)
+            #   LAKE_BASE       → HDFS (used by run_batch.py for silver/gold paths)
+            # The /data/checkpoints PVC is still mounted as a hot fallback.
+            - {name: CHECKPOINT_PATH, value: "hdfs://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:8020/checkpoints"}
+            - {name: LAKE_BASE,       value: "hdfs://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:8020/lake"}
           resources:
             requests: {cpu: "1",   memory: 3Gi}
             limits:   {cpu: "2",   memory: 5Gi}

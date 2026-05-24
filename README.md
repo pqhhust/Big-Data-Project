@@ -90,10 +90,21 @@ Big-Data-Project/
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Message Bus | Apache Kafka 3.9 | KRaft mode, no Zookeeper |
-| Stream Processing | Apache Spark 3.5 | Structured Streaming |
-| Serving Store | Cassandra 4.1 | Alert persistence |
-| Orchestration | Kubernetes 1.28+ | Deployment |
+| Message Bus | Apache Kafka 3.9 (KRaft) | No ZooKeeper |
+| Stream Processing | Apache Spark 3.5 | Batch + Structured Streaming + MLlib |
+| **Distributed Storage** | **HDFS 3.2 (1 NN + 2 DN, RF=2)** | Bronze/silver/gold lake + Spark checkpoints |
+| **Raw archive** | **S3 `raw_edf/` (17 GiB / 1,571 EDFs)** | Source of truth the bronze-streamer reads from |
+| **Object Storage** | **S3 static-website bucket** | Dashboard rollups, survives cluster teardown |
+| **Bronze production** | `bronze-streamer` Deployment | S3 EDF → mne parse → JSONL → HDFS, continuous |
+| **Batch trigger** | K8s CronJobs (every 5 min) | `hdfs-bronze-loader` + `spark-batch-hdfs` |
+| **Architecture visibility** | `cluster-state-exporter` + Grafana dashboard #6 | live kubectl + HDFS + Cassandra → S3 |
+| Serving Store | Cassandra 4.1 | Alert persistence (PK `patient_id`) |
+| Orchestration | Kubernetes 1.30 (AWS EKS) | Deployment |
+
+> **Hybrid storage:** HDFS is the *compute-side* distributed filesystem
+> (literal "HDFS" for the rubric); S3 is the *serving-side* object store so
+> the dashboard keeps working even when the cluster is torn down for
+> $1/month. See [`docs/QA-BANK.md` §17](docs/QA-BANK.md) for the full Q&A.
 
 ## Architecture
 
@@ -120,9 +131,18 @@ EHR Source → Kafka (ehr.updates) → Spark Streaming → Bronze Parquet ──
 
 ## Documentation
 
-- [Technology Architecture](docs/TECHNOLOGY.md) - Full architecture documentation
-- [Setup Guide](docs/setup-guide.md) - Environment setup instructions
-- [Week 1 Slides](docs/week1-slides.md) - Week 1 deliverables presentation
+| Doc | When to open it |
+|---|---|
+| [docs/STUDY-GUIDE.md](docs/STUDY-GUIDE.md) | Read first — prereq materials + code walk + deploy + Q&A |
+| [docs/CHEATSHEET.md](docs/CHEATSHEET.md) | One-page printable for the defense |
+| [docs/QA-BANK.md](docs/QA-BANK.md) | Every question consolidated — 17 sections incl. hybrid HDFS+S3 |
+| [docs/PYSPARK-STREAMING-QA.md](docs/PYSPARK-STREAMING-QA.md) | 80 streaming-engine Q&As |
+| [docs/AUTO-TRIGGER-MECHANISMS.md](docs/AUTO-TRIGGER-MECHANISMS.md) | CronJob vs streaming vs event-driven |
+| [docs/REAL-VS-DEMO.md](docs/REAL-VS-DEMO.md) | What a real hospital deployment adds |
+| [docs/TECHNOLOGY.md](docs/TECHNOLOGY.md) | Full architecture documentation |
+| [docs/PRESENTATION-GUIDE.md](docs/PRESENTATION-GUIDE.md) | Defense pitch + "if they ask" boxes |
+| [docs/final-report.md](docs/final-report.md) | The formal write-up |
+| [docs/setup-guide.md](docs/setup-guide.md) | Environment setup instructions |
 
 ## Status — final
 

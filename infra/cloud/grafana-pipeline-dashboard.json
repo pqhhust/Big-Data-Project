@@ -44,7 +44,7 @@
       "title": "Bronze size (GiB)",
       "gridPos": {
         "x": 0,
-        "y": 3,
+        "y": 7,
         "w": 4,
         "h": 5
       },
@@ -115,7 +115,7 @@
       "title": "Total events",
       "gridPos": {
         "x": 4,
-        "y": 3,
+        "y": 7,
         "w": 4,
         "h": 5
       },
@@ -186,7 +186,7 @@
       "title": "EKS batch (s)",
       "gridPos": {
         "x": 8,
-        "y": 3,
+        "y": 7,
         "w": 4,
         "h": 5
       },
@@ -260,7 +260,7 @@
       "title": "Generator events/s",
       "gridPos": {
         "x": 12,
-        "y": 3,
+        "y": 7,
         "w": 4,
         "h": 5
       },
@@ -331,7 +331,7 @@
       "title": "Bronze \u2192 Silver compression",
       "gridPos": {
         "x": 16,
-        "y": 3,
+        "y": 7,
         "w": 4,
         "h": 5
       },
@@ -402,7 +402,7 @@
       "title": "Tests passing",
       "gridPos": {
         "x": 20,
-        "y": 3,
+        "y": 7,
         "w": 4,
         "h": 5
       },
@@ -473,7 +473,7 @@
       "title": "Data-lake zone sizes (MiB, log)",
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 12,
         "w": 12,
         "h": 9
       },
@@ -552,7 +552,7 @@
       "title": "Pipeline stage timings (EKS run, 2026-05-20)",
       "gridPos": {
         "x": 12,
-        "y": 8,
+        "y": 12,
         "w": 12,
         "h": 9
       },
@@ -733,7 +733,7 @@
       "title": "Live alert ingestion rate (alerts / minute)",
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 21,
         "w": 24,
         "h": 9
       },
@@ -874,6 +874,150 @@
             {
               "selector": "normal",
               "text": "normal",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Raw EDF on S3 (GiB)",
+      "description": "Raw EDF archive on S3 (source for bronze-streamer). NOT the parsed bronze JSONL \u2014 bronze contains windowed features, hence its small size.",
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "blue"
+              },
+              {
+                "value": 15,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 40
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "raw_edf_size_gib",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Raw EDF files",
+      "description": "Count of EDF recordings uploaded to S3.",
+      "gridPos": {
+        "x": 4,
+        "y": 3,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 40
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "raw_edf_files",
+              "text": "value",
               "type": "number"
             }
           ]

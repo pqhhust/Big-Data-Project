@@ -1,0 +1,143 @@
+# Batch path on the hybrid HDFS storage — DYNAMIC version (CronJobs).
+#
+# Two CronJobs fire on a schedule so bronze→silver→gold is no longer a
+# one-shot manual run:
+#
+#   hdfs-bronze-loader      every 5 min   sync bronze-pvc → HDFS /lake/bronze
+#   spark-batch-hdfs        every 5 min   silver + gold + alert summary
+#
+# Trade-offs we picked:
+#   concurrencyPolicy: Forbid         → never overlap if a previous run slips
+#   startingDeadlineSeconds: 180      → skip missed slots if scheduler stalled
+#   successfulJobsHistoryLimit: 2     → bounded etcd footprint
+#   failedJobsHistoryLimit: 2
+#   ttlSecondsAfterFinished: 1800     → auto-clean completed pods after 30 min
+#
+# Manually trigger a run any time:
+#   kubectl -n brainwatch create job --from=cronjob/spark-batch-hdfs adhoc-$(date +%s)
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hdfs-bronze-loader
+  namespace: brainwatch
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 180
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 1800
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: loader
+              image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -eux
+                  # Override of bde2020 entrypoint → no core-site.xml; use -fs explicitly.
+                  HDFS_NN="hdfs://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:8020"
+                  HDFS="/opt/hadoop-3.2.1/bin/hdfs dfs -fs $HDFS_NN"
+
+                  until $HDFS -ls / >/dev/null 2>&1; do
+                    echo "waiting for HDFS RPC..."; sleep 5
+                  done
+
+                  for d in /lake /lake/bronze /lake/silver /lake/gold; do
+                    $HDFS -mkdir -p "$d" || true
+                  done
+
+                  # Idempotent sync — `-put -f` overwrites; new files appear, old files
+                  # are bit-for-bit equal so no churn for the HDFS replication layer.
+                  if [ -d /data/lake/bronze ] && [ -n "$(ls -A /data/lake/bronze 2>/dev/null)" ]; then
+                    $HDFS -put -f /data/lake/bronze/* /lake/bronze/ || true
+                  fi
+                  if [ -d /data/lake/bronze_real ] && [ -n "$(ls -A /data/lake/bronze_real 2>/dev/null)" ]; then
+                    $HDFS -put -f /data/lake/bronze_real/* /lake/bronze/ || true
+                  fi
+
+                  echo "==== HDFS lake after sync ===="
+                  $HDFS -du -h /lake
+              envFrom:
+                - configMapRef: {name: hdfs-env}
+              volumeMounts:
+                - {name: bronze, mountPath: /data/lake/bronze, readOnly: true}
+          volumes:
+            - {name: bronze, persistentVolumeClaim: {claimName: bronze-pvc, readOnly: true}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spark-batch-hdfs
+  namespace: brainwatch
+spec:
+  # Offset by 2 min so the loader's run lands before this one starts.
+  schedule: "2-59/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 180
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 1800
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          initContainers:
+            - name: fetch-code
+              image: amazon/aws-cli:2.17.0
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -eux
+                  mkdir -p /code/wheels /code/scripts
+                  aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /code/wheels/
+                  aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /code/scripts/ --recursive
+              env:
+                - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+                - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+                - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+              volumeMounts:
+                - {name: code, mountPath: /code}
+          containers:
+            - name: spark
+              image: spark:3.5.5-scala2.12-java17-python3-ubuntu
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euxo pipefail
+                  pip install --no-cache-dir --target=/code/site-packages \
+                    /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl
+                  export PYTHONPATH="/code/site-packages:${PYTHONPATH:-}"
+                  mkdir -p /tmp/.ivy2 /tmp/.spark-warehouse
+
+                  # Silver + gold land back in HDFS. `--overwrite` semantics are baked
+                  # into silver_layer / gold_layer (idempotent rebuilds).
+                  exec /opt/spark/bin/spark-submit \
+                    --master 'local[4]' \
+                    --driver-memory 4g \
+                    --conf spark.sql.shuffle.partitions=16 \
+                    --conf spark.sql.adaptive.enabled=true \
+                    --conf spark.jars.ivy=/tmp/.ivy2 \
+                    --conf spark.sql.warehouse.dir=/tmp/.spark-warehouse \
+                    --conf spark.hadoop.dfs.client.use.datanode.hostname=true \
+                    --py-files /code/wheels/brainwatch_big_data-0.2.0-py3-none-any.whl \
+                    /code/scripts/run_batch.py \
+                      --master 'local[4]' --driver-memory 4g --shuffle-partitions 16
+              env:
+                - {name: LAKE_BASE, value: "hdfs://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:8020/lake"}
+              resources:
+                requests: {cpu: "1", memory: 3Gi}
+                limits:   {cpu: "2", memory: 5Gi}
+              volumeMounts:
+                - {name: code, mountPath: /code}
+          volumes:
+            - {name: code, emptyDir: {}}

@@ -20,22 +20,41 @@ def _read_bronze(spark: Any, path: str):
     """Read bronze files transparently — JSONL produced by ``BronzeWriter``
     or Parquet produced by the Structured Streaming sink.
 
-    The format is detected by sniffing the first matching file via Python
-    ``os.walk`` at the driver (cheap, deterministic, single-machine).
+    Local paths use ``os.walk``; non-local (``hdfs://``, ``s3://``, ``s3a://``)
+    paths use Hadoop ``FileSystem`` via Spark's JVM gateway so the same code
+    works against the hybrid HDFS overlay.
     """
-    import os as _os
-
     sniff_ext = None
-    for dirpath, _, filenames in _os.walk(path):
-        for fn in filenames:
-            if fn.endswith(".jsonl") or fn.endswith(".json"):
-                sniff_ext = "json"
+
+    def _classify(fn: str) -> str | None:
+        if fn.endswith(".jsonl") or fn.endswith(".json"):
+            return "json"
+        if fn.endswith(".parquet"):
+            return "parquet"
+        return None
+
+    if "://" in path:
+        jvm = spark._jvm
+        hadoop_conf = spark._jsc.hadoopConfiguration()
+        URI = jvm.java.net.URI
+        Path = jvm.org.apache.hadoop.fs.Path
+        FileSystem = jvm.org.apache.hadoop.fs.FileSystem
+        try:
+            fs = FileSystem.get(URI.create(path), hadoop_conf)
+            it = fs.listFiles(Path(path), True)
+            while it.hasNext() and sniff_ext is None:
+                sniff_ext = _classify(it.next().getPath().getName())
+        except Exception:
+            sniff_ext = None
+    else:
+        import os as _os
+        for _dirpath, _, filenames in _os.walk(path):
+            for fn in filenames:
+                sniff_ext = _classify(fn)
+                if sniff_ext is not None:
+                    break
+            if sniff_ext is not None:
                 break
-            if fn.endswith(".parquet"):
-                sniff_ext = "parquet"
-                break
-        if sniff_ext is not None:
-            break
 
     if sniff_ext == "json":
         return (

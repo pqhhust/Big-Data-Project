@@ -1,0 +1,74 @@
+# Bronze streamer — long-running pod that simulates a hospital sending
+# fresh EEG recordings.
+#
+# Reads raw EDFs from s3://brainwatch-capstone/raw_edf/, parses with mne,
+# writes JSONL to /data/lake/bronze_real on the shared bronze-pvc, sleeps
+# SLEEP_BETWEEN_EDF seconds, repeats. The hdfs-bronze-loader CronJob
+# (every 5 min) picks up the new bronze and syncs it into HDFS; the
+# spark-batch-hdfs CronJob (every 5 min) rebuilds silver + gold.
+#
+# State (which EDFs have been processed) is persisted on bronze-pvc so the
+# pod can restart and resume without re-processing files.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bronze-streamer
+  namespace: brainwatch
+  labels: {app: bronze-streamer}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}    # single-writer guarantee on bronze-pvc
+  selector:
+    matchLabels: {app: bronze-streamer}
+  template:
+    metadata:
+      labels: {app: bronze-streamer}
+    spec:
+      initContainers:
+        - name: fetch-code
+          image: amazon/aws-cli:2.17.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eux
+              mkdir -p /code/wheels /code/scripts
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/brainwatch_big_data-0.2.0-py3-none-any.whl /code/wheels/
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/ /code/scripts/ --recursive
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      containers:
+        - name: streamer
+          image: python:3.11-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eux
+              apt-get update -qq && apt-get install -y --no-install-recommends libgomp1
+              # scipy 1.16 removed sph_harm; mne<1.8 still imports it → pin pair.
+              pip install --no-cache-dir boto3 'numpy<2' 'scipy==1.13.1' 'mne==1.7.1'
+              exec python /code/scripts/bronze_stream_from_s3.py
+          env:
+            - {name: RAW_EDF_BUCKET,        value: brainwatch-capstone-923884399064}
+            - {name: RAW_EDF_PREFIX,        value: "raw_edf/"}
+            - {name: BRONZE_DIR,            value: "/data/lake/bronze_real"}
+            - {name: SLEEP_BETWEEN_EDF,     value: "20"}
+            - {name: WINDOW_SECONDS,        value: "10.0"}
+            - {name: MAX_WINDOWS_PER_FILE,  value: "600"}
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits:   {cpu: "1",  memory: 2Gi}
+          volumeMounts:
+            - {name: code,   mountPath: /code}
+            - {name: bronze, mountPath: /data/lake/bronze_real, subPath: bronze_real}
+            - {name: bronze, mountPath: /data/lake/_state,      subPath: _state}
+      volumes:
+        - {name: code,   emptyDir: {}}
+        - {name: bronze, persistentVolumeClaim: {claimName: bronze-pvc}}

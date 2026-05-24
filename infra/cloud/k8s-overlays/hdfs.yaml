@@ -1,0 +1,188 @@
+# HDFS overlay for the BrainWatch hybrid storage path.
+#
+#   1× NameNode StatefulSet   — metadata; ports 9870 (UI), 8020 (RPC)
+#   2× DataNode StatefulSet   — block storage; ports 9866 (data), 9864 (UI)
+#
+# Image: bde2020/hadoop-{namenode,datanode}:2.0.0-hadoop3.2.1-java8 — the
+# de-facto community image for Hadoop on K8s; auto-formats the namenode on
+# first boot when CLUSTER_NAME is set, so no separate format Job is needed.
+#
+# Hybrid role:
+#   - HDFS is the *compute-side* distributed storage (bronze JSONL → silver
+#     Parquet → gold Parquet via Spark).
+#   - The dashboard exporter keeps writing rollup JSON to S3 so the Grafana
+#     view survives a full cluster teardown.
+#
+# Replication factor 2: matches the 2 DataNodes; survives 1 DN failure.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hdfs-env
+  namespace: brainwatch
+data:
+  CLUSTER_NAME: brainwatch
+  CORE_CONF_fs_defaultFS: hdfs://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:8020
+  CORE_CONF_hadoop_http_staticuser_user: root
+  CORE_CONF_hadoop_proxyuser_hue_hosts: "*"
+  CORE_CONF_hadoop_proxyuser_hue_groups: "*"
+  HDFS_CONF_dfs_replication: "2"
+  HDFS_CONF_dfs_webhdfs_enabled: "true"
+  HDFS_CONF_dfs_permissions_enabled: "false"
+  HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+  HDFS_CONF_dfs_blocksize: "67108864"   # 64 MiB blocks (smaller for our small files)
+---
+# ───────────────────────────── NameNode ─────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hdfs-namenode
+  namespace: brainwatch
+  labels: {app: hdfs-namenode}
+spec:
+  serviceName: hdfs-namenode
+  replicas: 1
+  selector:
+    matchLabels: {app: hdfs-namenode}
+  template:
+    metadata:
+      labels: {app: hdfs-namenode}
+    spec:
+      initContainers:
+        - name: clean-lost-found
+          image: busybox:1.36
+          command: ["sh", "-c", "rm -rf /hadoop/dfs/name/lost+found && mkdir -p /hadoop/dfs/name && chown -R 0:0 /hadoop/dfs/name"]
+          securityContext: {runAsUser: 0}
+          volumeMounts:
+            - {name: namenode-data, mountPath: /hadoop/dfs/name}
+      containers:
+        - name: namenode
+          image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+          ports:
+            - {containerPort: 9870, name: ui}
+            - {containerPort: 8020, name: rpc}
+          envFrom:
+            - configMapRef: {name: hdfs-env}
+          resources:
+            requests: {cpu: 250m, memory: 768Mi}
+            limits:   {cpu: "1",  memory: 1500Mi}
+          volumeMounts:
+            - {name: namenode-data, mountPath: /hadoop/dfs/name}
+          readinessProbe:
+            tcpSocket: {port: 9870}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata: {name: namenode-data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 5Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hdfs-namenode
+  namespace: brainwatch
+spec:
+  clusterIP: None
+  selector: {app: hdfs-namenode}
+  ports:
+    - {name: ui,  port: 9870, targetPort: 9870}
+    - {name: rpc, port: 8020, targetPort: 8020}
+---
+# ───────────────────────────── DataNodes ─────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hdfs-datanode
+  namespace: brainwatch
+  labels: {app: hdfs-datanode}
+spec:
+  serviceName: hdfs-datanode
+  replicas: 2
+  selector:
+    matchLabels: {app: hdfs-datanode}
+  template:
+    metadata:
+      labels: {app: hdfs-datanode}
+    spec:
+      initContainers:
+        - name: clean-lost-found
+          image: busybox:1.36
+          command: ["sh", "-c", "rm -rf /hadoop/dfs/data/lost+found && mkdir -p /hadoop/dfs/data && chown -R 0:0 /hadoop/dfs/data"]
+          securityContext: {runAsUser: 0}
+          volumeMounts:
+            - {name: datanode-data, mountPath: /hadoop/dfs/data}
+        - name: wait-for-namenode
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local 8020; do echo waiting for namenode; sleep 5; done"]
+      containers:
+        - name: datanode
+          image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+          ports:
+            - {containerPort: 9866, name: data}
+            - {containerPort: 9864, name: ui}
+          envFrom:
+            - configMapRef: {name: hdfs-env}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits:   {cpu: "1",  memory: 1Gi}
+          volumeMounts:
+            - {name: datanode-data, mountPath: /hadoop/dfs/data}
+          readinessProbe:
+            tcpSocket: {port: 9866}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata: {name: datanode-data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 20Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hdfs-datanode
+  namespace: brainwatch
+spec:
+  clusterIP: None
+  selector: {app: hdfs-datanode}
+  ports:
+    - {name: data, port: 9866, targetPort: 9866}
+    - {name: ui,   port: 9864, targetPort: 9864}
+---
+# ─────────────── one-shot Job: create the lake directory tree ───────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hdfs-bootstrap-dirs
+  namespace: brainwatch
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: hdfs-init
+          image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eux
+              # Pass the namenode URI explicitly via -fs because we override the
+              # bde2020 entrypoint (which would otherwise generate core-site.xml
+              # from CORE_CONF_fs_defaultFS). Without -fs, hdfs dfs falls back
+              # to the local filesystem and silently no-ops against real HDFS.
+              HDFS_NN="hdfs://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:8020"
+              HDFS="/opt/hadoop-3.2.1/bin/hdfs dfs -fs $HDFS_NN"
+
+              until $HDFS -ls / >/dev/null 2>&1; do
+                echo "waiting for namenode RPC..."; sleep 5
+              done
+              for d in /lake /lake/bronze /lake/silver /lake/gold /checkpoints; do
+                $HDFS -mkdir -p "$d"
+                $HDFS -chmod 777 "$d"
+              done
+              $HDFS -ls /
+          envFrom:
+            - configMapRef: {name: hdfs-env}

@@ -1,0 +1,118 @@
+# Cluster-state exporter — long-running pod that queries the K8s API, HDFS,
+# and Cassandra, then writes a snapshot to S3 every 30s. A Grafana dashboard
+# reads it via the Infinity datasource to render the "Architecture Status"
+# view.
+#
+# Uses an in-cluster ServiceAccount with minimal read perms.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-state-reader
+  namespace: brainwatch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-state-reader
+  namespace: brainwatch
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-state-reader
+  namespace: brainwatch
+subjects:
+  - kind: ServiceAccount
+    name: cluster-state-reader
+    namespace: brainwatch
+roleRef:
+  kind: Role
+  name: cluster-state-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+# Cluster-scoped read for nodes (nodes aren't namespaced)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-state-nodes
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-state-nodes
+subjects:
+  - kind: ServiceAccount
+    name: cluster-state-reader
+    namespace: brainwatch
+roleRef:
+  kind: ClusterRole
+  name: cluster-state-nodes
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-state-exporter
+  namespace: brainwatch
+  labels: {app: cluster-state-exporter}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: cluster-state-exporter}
+  template:
+    metadata:
+      labels: {app: cluster-state-exporter}
+    spec:
+      serviceAccountName: cluster-state-reader
+      initContainers:
+        - name: fetch-code
+          image: amazon/aws-cli:2.17.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eux
+              mkdir -p /code/scripts
+              aws s3 cp s3://brainwatch-capstone-923884399064/code/scripts/cluster_state_to_s3.py /code/scripts/
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      containers:
+        - name: exporter
+          image: alpine/k8s:1.30.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eux
+              # alpine/k8s ships kubectl + curl + bash. Install Python + boto3.
+              apk add --no-cache python3 py3-pip
+              pip3 install --no-cache-dir --break-system-packages boto3
+              exec python3 /code/scripts/cluster_state_to_s3.py --interval 30
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: aws-credentials, key: access-key-id}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: aws-credentials, key: secret-access-key}}}
+            - {name: AWS_DEFAULT_REGION,    value: us-east-1}
+          resources:
+            requests: {cpu: 50m,  memory: 128Mi}
+            limits:   {cpu: 250m, memory: 384Mi}
+          volumeMounts:
+            - {name: code, mountPath: /code}
+      volumes:
+        - {name: code, emptyDir: {}}
