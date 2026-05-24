@@ -49,18 +49,25 @@ spec:
                     echo "waiting for HDFS RPC..."; sleep 5
                   done
 
-                  for d in /lake /lake/bronze /lake/silver /lake/gold; do
+                  for d in /lake /lake/bronze /lake/bronze/eeg /lake/bronze/ehr /lake/bronze/edf /lake/silver /lake/gold; do
                     $HDFS -mkdir -p "$d" || true
                   done
 
-                  # Idempotent sync — `-put -f` overwrites; new files appear, old files
-                  # are bit-for-bit equal so no churn for the HDFS replication layer.
-                  if [ -d /data/lake/bronze ] && [ -n "$(ls -A /data/lake/bronze 2>/dev/null)" ]; then
-                    $HDFS -put -f /data/lake/bronze/* /lake/bronze/ || true
-                  fi
-                  if [ -d /data/lake/bronze_real ] && [ -n "$(ls -A /data/lake/bronze_real 2>/dev/null)" ]; then
-                    $HDFS -put -f /data/lake/bronze_real/* /lake/bronze/ || true
-                  fi
+                  # Initial-cohort files (top of PVC) — already partitioned by stream
+                  for stream in eeg ehr; do
+                    if [ -d /data/lake/bronze/$stream ] && [ "$(ls -A /data/lake/bronze/$stream 2>/dev/null)" ]; then
+                      $HDFS -put -f /data/lake/bronze/$stream/* /lake/bronze/$stream/ || true
+                    fi
+                  done
+
+                  # Streamer files — promote bronze_real/{eeg,edf}/* into the matching
+                  # /lake/bronze/<stream>/ paths so silver_layer (which reads
+                  # /lake/bronze/eeg) actually sees them.
+                  for stream in eeg edf; do
+                    if [ -d /data/lake/bronze/bronze_real/$stream ] && [ "$(ls -A /data/lake/bronze/bronze_real/$stream 2>/dev/null)" ]; then
+                      $HDFS -put -f /data/lake/bronze/bronze_real/$stream/* /lake/bronze/$stream/ || true
+                    fi
+                  done
 
                   echo "==== HDFS lake after sync ===="
                   $HDFS -du -h /lake
