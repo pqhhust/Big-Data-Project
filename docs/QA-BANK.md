@@ -44,7 +44,7 @@ These are the ones every examiner reaches for first. Memorize the bolded line;
 the rest is colour.
 
 **1. Why Lambda and not Kappa?**
-> **"Cheap historical reprocessing."** Re-running the batch path over an 8.5 GiB
+> **"Cheap historical reprocessing."** Re-running the batch path over a 17 GiB
 > cold BDSP corpus is one Spark job. Kappa would mean re-streaming everything
 > through Kafka, which is wasteful, slow, and forces us to retain those bytes
 > in Kafka. Lambda also matches the course rubric — we have to demonstrate
@@ -980,7 +980,7 @@ The speed layer fills the gap between batch runs.
   output.
 - **Cost is trivial** at our scale: each run is ~35-60 s on one t3.xlarge.
   ~$1/day extra at every-5-min cadence.
-- **Production would be coarser** — for an 8.5 GiB cohort that doesn't grow,
+- **Production would be coarser** — for a 17 GiB cohort that's now grown dynamically by the streamer,
   nightly is fine. For a live hospital with continuous EDF inflow, 15-min
   or hourly is the realistic cadence.
 

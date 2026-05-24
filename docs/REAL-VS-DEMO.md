@@ -31,7 +31,7 @@ answer "is it actually dynamic?" with depth.
 A hospital with 200 EEG monitors generates **~500 EDF chunks per second,
 continuously, forever**. Patient admissions, lab results, medication orders
 hit the EHR 24/7. The system that ingests all of this is fundamentally
-different from one that downloads a fixed 8.5 GiB cohort once and runs the
+different from one that downloads a 17 GiB cohort (1,571 EDFs in S3) that the bronze-streamer continuously processes, and runs the
 pipeline against it.
 
 The Lambda architecture **is the same** — batch layer + speed layer + serving
@@ -64,7 +64,7 @@ except gold** (which is usually scheduled because it does expensive aggregates).
 
 | Concern | Our demo today | Real hospital production |
 |---|---|---|
-| **Data source** | Static BDSP S3 — 8.5 GiB downloaded once | Live EDF stream from Natus / Persyst / Nihon Kohden bedside monitors |
+| **Data source** | BDSP S3 + our own s3://brainwatch-capstone/raw_edf/ mirror (17 GiB / 1,571 EDFs); bronze-streamer pulls one EDF every 20 s | Live EDF stream from Natus / Persyst / Nihon Kohden bedside monitors |
 | **EDF arrival** | `scripts/download_real_edf.py` runs once | Each monitor writes an EDF chunk every ~10 s; a vendor "stream gateway" pushes them to a queue |
 | **EHR arrival** | `scripts/build_real_ehr.py` generates synthetic events keyed to real patients | HL7 v2 messages (ADT, ORU, ORM) or FHIR resources pushed by the hospital EHR (Epic, Cerner) via an interface engine (Mirth, Rhapsody) |
 | **Bronze ingest** | `edf_to_bronze.py` (offline) + `hdfs-bronze-loader` CronJob every 5 min (PVC → HDFS) | Kafka Connect or a per-device Python producer publishes to `eeg.raw`; a Spark Structured Streaming job writes to bronze on Delta Lake |
@@ -260,7 +260,7 @@ The architectural shape — Kafka source, watermark, windowed agg, UDF score,
   cold copy stays in S3 (gold/alerts daily snapshot).
 - **Hinted handoff + read repair** for transient node failures.
 
-We've done none of this; for a 8.5 GiB demo, a single node with `RF=1` is
+We've done none of this; for our HDFS RF=2 cluster (40 GiB total capacity), a single Cassandra node with `RF=1` is
 fine.
 
 ### 4.7 Exporter → S3 → Dashboard
@@ -480,7 +480,7 @@ If asked "is your system dynamic?", structure the answer in three beats:
 > Lake — that's the modern Lakehouse pattern."
 
 > **Beat 3 — frame why we shipped it this way:** "We chose the one-shot
-> batch because (a) our cohort is finite — 8.5 GiB of fixed BDSP recordings,
+> batch because (a) our cohort is finite — 17 GiB of BDSP recordings staged in S3 (bronze size grows dynamically from there),
 > not a live device stream — and (b) we wanted compute cost at zero between
 > demos. In a real hospital with live EEG monitors, you'd enable the
 > CronJob on day one and migrate to streaming bronze→silver→gold once you

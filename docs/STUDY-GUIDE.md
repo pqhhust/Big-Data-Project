@@ -64,7 +64,7 @@ and one good link per topic so you can re-look-up under pressure.
 - Read: ["Lambda Architecture" — original page by Nathan Marz](http://lambda-architecture.net/)
 - Compare: **Kappa** (stream-only) — easier ops but expensive replay/backfill.
 - *Why we picked Lambda:* we needed historical reprocessing on real BDSP EDF
-  files (an 8.5 GiB cold corpus) and a live alert path at the same time.
+  files (a 17 GiB cold corpus) and a live alert path at the same time.
 
 ### 2.2 Medallion (bronze → silver → gold) (5 min)
 - **Bronze** = raw landed events, immutable, append-only (JSONL in our repo).
@@ -174,8 +174,8 @@ clinical context (labs, meds, diagnoses)**, so a clinician can act in seconds.
 
 Concretely, BrainWatch must:
 
-1. **Ingest at scale** — ≥8 GiB of real EEG (we ship 8.5 GiB / 1,190
-   recordings / 1,097 patients / 4 hospital sites) and the matching EHR.
+1. **Ingest at scale** — ≥17 GiB of real EEG (we ship 17 GiB / 1,571
+   recordings across 4 hospital sites) and the matching EHR.
 2. **Process two ways at once:**
    - **Batch layer** — periodic accurate recompute (bronze → silver → gold).
    - **Speed layer** — sub-minute alerts on the live stream.
@@ -408,7 +408,7 @@ export BDSP_CREDENTIALS=/mnt/disk1/aiotlab/pqhung/courseworks/credentials/rootke
 docker compose -f infra/docker/docker-compose.yml up -d
 # Kafka UI: http://localhost:8890   Spark UI: http://localhost:8891
 
-# 3. Get data (small slice for local dev — full 8.5 GiB lives on EKS PVCs)
+# 3. Get data (small slice for local dev — full 17 GiB lives in S3 raw_edf/ (the streamer reads from there))
 python scripts/download_real_edf.py --target-gib 1 --sites 4 --max-duration-s 600
 python scripts/edf_to_bronze.py
 python scripts/build_real_ehr.py
@@ -604,10 +604,10 @@ The script for the live defense — 7 minutes from "share screen" to "thank you.
 
 | Minute | Show | Say |
 |---|---|---|
-| 0:00 | The architecture picture (§4) | "BrainWatch is a Lambda-architecture platform — batch + speed — over 8.5 GiB of real Harvard BDSP EEG." |
+| 0:00 | The architecture picture (§4) | "BrainWatch is a Lambda-architecture platform — batch + speed — over 17 GiB of real Harvard BDSP EEG (dynamic — bronze grows during the demo)." |
 | 0:30 | `kubectl -n brainwatch get pods` (or screenshot) | "Live on AWS EKS. Kafka, Spark Structured Streaming, Cassandra, Grafana." |
 | 1:00 | Grafana **Live Alerts** dashboard | Point at severity counts ticking up in real time. |
-| 2:00 | Grafana **Pipeline** dashboard | "EKS batch finished in ~7 minutes on 8.2 GiB. Bronze → silver compression 42×." |
+| 2:00 | Grafana **Pipeline** dashboard | "spark-batch-hdfs CronJob fires every 5 min and rebuilds silver+gold in ~50 s; ~42× compression on the JSONL → Parquet path." |
 | 3:00 | Grafana **Insights** dashboard | "These are real HEEDB ICD-10 categories — most prevalent: epilepsy, encephalopathy." |
 | 4:00 | Grafana **Data Explorer** dashboard | "Bronze raw → Silver dedup+quality → Gold daily features. Same row, three zones." |
 | 5:00 | `scripts/add_note.py` in a terminal | "We can annotate live findings — they appear in the Notes panel." |
@@ -623,7 +623,7 @@ serves the last snapshot and is independent of the EKS cluster.
 
 Already in `docs/PRESENTATION-GUIDE.md`. The 10 you must rehearse:
 
-1. **Why Lambda and not Kappa?** Reprocessing 8.5 GiB cold data is cheap with
+1. **Why Lambda and not Kappa?** Reprocessing 17 GiB cold data is cheap with
    a batch layer; in Kappa we'd re-stream it from Kafka, which means we'd need
    to keep that retention. The batch layer also gives us a *trustable* source
    for back-testing the speed layer's UDF.

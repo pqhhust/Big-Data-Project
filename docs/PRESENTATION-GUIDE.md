@@ -11,8 +11,8 @@ your defense cheat-sheet.
 > "BrainWatch is a Lambda-architecture big-data platform that ingests real
 > hospital EEG recordings and EHR data, processes them with Spark (both batch
 > and streaming), stores alerts in Cassandra, and visualizes them in Grafana —
-> all deployed on Kubernetes (AWS EKS). We run it on **8.5 GiB of real EEG**
-> from Harvard's BDSP corpus across 1,190 recordings and 4 hospital sites."
+> all deployed on Kubernetes (AWS EKS). We run it on **17 GiB of real EEG**
+> from Harvard's BDSP corpus across 1,571 recordings and 4 hospital sites (50% pre-loaded into bronze, the rest streamed live)."
 
 ---
 
@@ -58,7 +58,7 @@ your defense cheat-sheet.
  REAL EDF (Harvard BDSP S3, credentialed access point)
         │  download_real_edf.py  (metadata-driven, breadth-first)
         ▼
- data/raw/eeg/*.edf  (8.5 GiB, 1,190 recordings, 4 sites)
+ data/raw/eeg/*.edf  (17 GiB raw archive on S3 + dynamic bronze, 1,571 recordings, 4 sites)
         │  edf_to_bronze.py  (mne reads real signal → measured features)
         ▼
  ┌─ BRONZE ── eeg events (JSONL): channel_count, sampling_rate, window,
@@ -122,12 +122,12 @@ your defense cheat-sheet.
 
 | Metric | Value |
 |---|---|
-| Real EDF | 8.5 GiB · 1,190 recordings · 1,097 patients · 4 sites (S0001/S0002/I0002/I0003) |
-| Bronze events | 29,163 measured EEG events |
+| Real EDF | 17 GiB raw EDF on S3 · 1,571 recordings · 4 sites (S0001/S0002/I0002/I0003) |
+| Bronze events | grows continuously as the streamer feeds (currently ~6.8 M events derived from 50% of EDFs) |
 | Real sampling rates | 200 / 256 / 512 Hz (measured) |
 | Real channel counts | 19–148 (real montages) |
 | Silver | 24,759 EEG rows · ~42× Parquet compression |
-| Real ICD-10 | HEEDB neurology table, 640/1,097 patients matched, 28 categories |
+| Real ICD-10 | HEEDB neurology table, 28 categories matched |
 | Alerts | 1,077 (real classify_v2 output) |
 | Tests | 131 passing (local-first) |
 | K8s | 31 resources, kubeconform-clean; deployed on EKS (2× t3.xlarge) |

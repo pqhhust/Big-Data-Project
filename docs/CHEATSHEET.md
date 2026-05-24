@@ -13,8 +13,9 @@
 > "BrainWatch is a **Lambda-architecture big-data platform** that ingests real
 > hospital EEG + EHR, processes them with **Spark** (batch *and* streaming),
 > stores alerts in **Cassandra**, and visualises them in **Grafana** — all
-> on **AWS EKS**. We run on **8.5 GiB of real Harvard BDSP EEG** —
-> 1,190 recordings, 1,097 patients, 4 hospital sites."
+> on **AWS EKS**. We run on **17 GiB of real Harvard BDSP EEG** in S3
+> (1,571 recordings across 4 sites — 50% pre-loaded into bronze, the rest
+> streamed live during the demo)."
 
 ### Architecture (whiteboard this in 60 s)
 
@@ -99,19 +100,21 @@ Row 4 (y=21): Live alert ingestion rate (timeseries)
 
 | Metric | Value |
 |---|---|
-| Real EDF | **8.5 GiB · 1,190 recordings · 1,097 patients · 4 sites** |
-| Bronze EEG events | 29,163 (measured from real signal) |
-| Silver EEG rows | 28,598 (after dedup) |
-| Compression | **~42×** (JSONL bronze → Parquet+Snappy silver) |
-| Alerts | 2,400+ end-to-end on EKS |
-| Sampling rates | 200 / 256 / 512 Hz (real) |
+| Raw EDF in S3 | **17 GiB · 1,571 recordings · 4 sites (S0001/S0002/I0002/I0003)** |
+| Bronze (HDFS, dynamic) | grows continuously, capped at 4 GiB (JSONL features + archived EDF binaries) |
+| Silver (HDFS, Parquet) | rebuilt every 5 min by the spark-batch CronJob |
+| Gold (HDFS, Parquet) | per-patient daily features, partitioned by event_date |
+| Compression (JSONL → Parquet) | ~42× — measured on the silver path |
+| Alerts | **100K+ in Cassandra** (steady ~60–100 per micro-batch, every 5 s) |
+| Kafka throughput | ~333 events/s sustained (eeg.raw + ehr.updates, 4 partitions each, 1.3M+ events each) |
+| Sampling rates | 200 / 256 / 512 Hz (real, measured per EDF) |
 | Channel counts | 19–148 (real montages) |
-| Real ICD-10 matched | 640 / 1,097 patients · 28 HEEDB categories |
-| Tests | **131 passing** |
-| K8s resources | 14+ HDFS = ~31 total, kubeconform-clean |
-| EKS nodes | 2× t3.xlarge → m5.xlarge |
-| HDFS | **1 NameNode + 2 DataNodes**, RF=2, 64 MiB block |
-| Batch runtime (EKS) | ~7 minutes on 8.2 GiB |
+| Real ICD-10 matched | HEEDB neurology table, 28 categories |
+| Tests | **131 passing** (Spark + non-Spark, JAVA_HOME from `.javaenv`) |
+| K8s resources | ~38 total (HDFS + Kafka + Cassandra + Grafana + 4 long-running Deployments + 2 CronJobs), kubeconform-clean |
+| EKS nodes | 2× t3.xlarge in us-east-1d/f |
+| HDFS | **1 NameNode + 2 DataNodes**, RF=2, 64 MiB block, ~40 GiB total capacity |
+| Batch runtime (EKS) | ~50 s per CronJob fire on the current bronze |
 | Paused storage cost | **~$1/month** (5 EBS snapshots + 2 S3 buckets) |
 
 ### Rubric compliance ✅
@@ -218,7 +221,7 @@ Clustering `DESC` → newest-first read without ORDER BY.
 ### The four V's (rubric)
 
 - **Volume:** 306,741 recordings · 115,060 unique subjects · 3.2M valid hours
-  (full BDSP); 8.5 GiB / 1,190 recordings in our cohort.
+  (full BDSP); **17 GiB / 1,571 recordings** in our S3-staged cohort.
 - **Velocity:** sub-minute ingestion-to-alert; 30 s window / 15 s slide.
 - **Variety:** EDF time-series · structured EHR · per-site CSV metadata with
   schema differences (`DurationInSeconds` vs `RecordingDuration`).
@@ -279,7 +282,7 @@ resume:   ~15-20 min  bash infra/cloud/resume_from_snapshots.sh
 
 ### Phrases that score points
 
-- "Lambda lets us **reprocess** the 8.5 GiB cold corpus cheaply — Kappa would
+- "Lambda lets us **reprocess** the 17 GiB cold corpus cheaply — Kappa would
   re-stream it."
 - "We pay the **broadcast** so we don't pay the **shuffle**."
 - "Watermark bounds **state**; the window bounds **emission**."

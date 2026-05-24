@@ -35,7 +35,7 @@
       },
       "options": {
         "mode": "html",
-        "content": "<div style='padding:8px 16px;background:linear-gradient(90deg,#1f2330,#2c3e50);border-radius:6px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:22px;font-weight:700;letter-spacing:-0.01em;'>BrainWatch \u00b7 Lambda-Architecture Pipeline</div><div style='color:#9aa7b8;font-size:13px;margin-top:2px;'>Hospital-scale EEG anomaly detection \u00b7 8.2 GiB bronze \u00b7 37.25 M events \u00b7 deployed on Amazon EKS \u00b7 IT4043E capstone</div></div>"
+        "content": "<div style='padding:8px 16px;background:linear-gradient(90deg,#1f2330,#2c3e50);border-radius:6px;color:#fff;font-family:Inter,system-ui;'><div style='font-size:22px;font-weight:700;letter-spacing:-0.01em;'>BrainWatch \u00b7 Lambda-Architecture Pipeline</div><div style='color:#9aa7b8;font-size:13px;margin-top:2px;'>Hospital-scale EEG anomaly detection \u00b7 <b>17 GiB raw EDF</b> in S3 (1,571 files) \u00b7 <b>dynamic bronze</b> grown by the streamer + 5-min CronJobs \u00b7 HDFS + S3 hybrid storage \u00b7 AWS EKS \u00b7 IT4043E capstone. <b>All numbers below refresh every 30 s.</b></div></div>"
       }
     },
     {
@@ -749,7 +749,7 @@
           ]
         }
       ],
-      "description": "Historical snapshot from one full batch run on the 8.2 GiB cohort. Static \u2014 NOT live. Source: build-time pipeline_stages.json."
+      "description": "Static snapshot from one full batch run of the original 8.2 GiB cohort \u2014 historical reference, NOT live. Live size/throughput now in the stat panels above."
     },
     {
       "id": 50,

@@ -54,7 +54,7 @@ docker compose -f infra/docker/docker-compose.yml up -d
 ### 4. Run tests
 
 ```bash
-pytest -v   # 67 tests passing
+pytest -v   # 131 tests passing
 ```
 
 ### 5. Deploy to Kubernetes
@@ -82,7 +82,7 @@ Big-Data-Project/
 │   ├── ingestion/        # Producers, writers, DLQ
 │   ├── processing/       # Spark pipelines
 │   └── serving/          # Anomaly rules, alert publisher
-├── tests/                # 67 unit tests
+├── tests/                # 131 unit tests
 └── dashboard/            # React frontend (WIP)
 ```
 
@@ -147,7 +147,7 @@ EHR Source → Kafka (ehr.updates) → Spark Streaming → Bronze Parquet ──
 ## Status — final
 
 - **Architecture + ingestion + batch + speed + serving**: complete
-- **Real data**: 8.5 GiB of real BDSP/Harvard EDF (1,190 recordings, 1,097
+- **Real data**: 17 GiB of real BDSP/Harvard EDF (1,571 recordings across 4 sites — 1,097 unique
   patients, 4 sites) parsed with `mne` into measured bronze events; real
   HEEDB ICD-10 neurology diagnoses joined for 640 patients
 - **Tests**: 131 passing (`pytest -q`), local-first
@@ -161,7 +161,7 @@ EHR Source → Kafka (ehr.updates) → Spark Streaming → Bronze Parquet ──
 ```bash
 # 1. Download real EDF from BDSP (needs the rootkey)
 export BDSP_CREDENTIALS=../credentials/rootkey.csv
-python scripts/download_real_edf.py --target-gb 8.5 --min-duration 600 --max-duration 3000
+python scripts/download_real_edf.py --target-gb 17 --min-duration 600 --max-duration 3000
 
 # 2. Parse real signal → measured bronze events
 python scripts/edf_to_bronze.py --bronze data/lake/bronze_real
