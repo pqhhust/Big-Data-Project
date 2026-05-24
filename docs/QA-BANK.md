@@ -940,6 +940,24 @@ kubectl -n brainwatch exec sts/hdfs-namenode -- hdfs dfs -du -h /lake
 demo, NameNode is on a stable EBS PVC; if the pod dies, K8s restarts it
 within 60 s.
 
+### Q17.12a How do I prove Kafka is carrying real-stream data, not stubs?
+Two commands during the demo:
+```bash
+# topic offsets — should grow between two invocations
+kubectl -n brainwatch exec kafka-0 -- /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic eeg.raw
+# eeg.raw:0:357343  eeg.raw:1:337643  eeg.raw:2:330765  eeg.raw:3:313968
+
+# kafka-producer pace (333 events/s sustained)
+kubectl -n brainwatch logs deploy/kafka-producer --tail 5
+# [producer] sent eeg=343 ehr=343 total=1665458 (333092/s)
+
+# speed-layer consuming + writing alerts
+kubectl -n brainwatch logs deploy/speed-layer --tail 3 | grep foreachBatch
+# [foreachBatch batch_id=2362] wrote 76 alerts to Cassandra
+```
+1.3 M+ events on `eeg.raw`, 1.3 M+ on `ehr.updates` (4 partitions each).
+
 ### Q17.13 Is the batch one-shot or dynamic?
 **Dynamic — two K8s CronJobs fire every 5 minutes.**
 

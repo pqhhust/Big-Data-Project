@@ -507,10 +507,24 @@ The compute side of the pipeline runs against **HDFS**:
 | Cassandra | live alerts | `brainwatch.alerts` table | Speed-layer foreachBatch sink |
 | EBS PVC | Kafka log, Cassandra SSTables | per-pod | StatefulSet storage |
 
-**Dynamic bronze production:** the `bronze-streamer` Deployment reads EDFs from
-S3 and writes JSONL to the bronze-pvc on a 20 s tempo. The two batch CronJobs
-(every 5 min) sync to HDFS and rebuild silver/gold — so each successive batch
-sees more bronze than the last.
+**Dynamic bronze production:** the `bronze-streamer` Deployment reads EDFs
+from S3 and writes JSONL features to bronze-pvc **and copies the raw EDF
+binary into `bronze/edf/`** (archive pattern, capped at 4 GiB to fit HDFS).
+The two batch CronJobs (every 5 min) sync to HDFS and rebuild silver/gold
+— so each successive batch sees more bronze than the last.
+
+**Kafka real-stream loop:** `kafka-producer` Deployment replays bronze
+JSONL into `eeg.raw` + `ehr.updates` topics at ~333 events/s. Speed-layer
+Spark consumes from Kafka with watermarks, scores via the UDF, writes alerts
+to Cassandra via `foreachBatch`. Both topics carry **1 M+ events** and grow
+continuously — verifiable via
+`kubectl -n brainwatch exec kafka-0 -- /opt/kafka/bin/kafka-get-offsets.sh
+ --bootstrap-server localhost:9092 --topic eeg.raw`.
+
+**Pipeline dashboard layout — 6 stats × 2 rows:** raw/bronze/silver/gold/events
+(row 1) + streamed/alerts/compression/batch/gen/tests (row 2), plus a live
+**Data-lake zone sizes** table-with-gauge-cells panel and the historical
+**Pipeline stage timings** snapshot.
 
 The `LAKE_BASE` env var on the speed-layer Deployment + the spark-batch Job
 flips the lake between local file paths and `hdfs://…`. Locally for tests

@@ -73,6 +73,28 @@ a full cluster teardown for ~$1/mo.
 that rebuilds silver + gold on HDFS. `concurrencyPolicy: Forbid` so they
 never overlap. Speed layer is continuous (every 5 s). End-to-end now lives.
 
+**Bronze archive (not just point):** `bronze-streamer` reads EDFs from
+`s3://brainwatch-capstone/raw_edf/`, parses with `mne` for the JSONL
+features, **and copies the raw EDF binary** into `bronze/edf/` so bronze
+size grows with each EDF (capped at `ARCHIVE_RAW_CAP_GIB=4` so HDFS RF=2
+stays under 50% of the 40 GiB cluster). Matches real hospital ingest. See
+`QA-BANK.md` §17.18.
+
+**Kafka real-stream evidence:** `eeg.raw` + `ehr.updates` carry **1.3 M+
+events each** (4 partitions), `kafka-producer` sustains ~333 events/s,
+speed-layer's `foreachBatch` writes 60–100 alerts per micro-batch into
+Cassandra. **Not a static replay — continuously producing as bronze grows.**
+
+**Pipeline dashboard layout — 6×2 stat grid:**
+```
+Row 1 (y=3):  Raw EDF on S3 (GiB)  ·  Raw EDF files     ·  Bronze size (GiB)
+              Silver size (MB)     ·  Gold size (KB)    ·  Total events
+Row 2 (y=8):  EDFs streamed        ·  Alerts (Cassandra) · Bronze→Silver compression
+              EKS batch (s)        ·  Generator events/s · Tests passing
+Row 3 (y=13): Data-lake zone sizes (live, table+gauge cells) | Stage timings (snapshot)
+Row 4 (y=21): Live alert ingestion rate (timeseries)
+```
+
 ### The numbers (memorize)
 
 | Metric | Value |
