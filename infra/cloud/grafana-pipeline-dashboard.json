@@ -43,8 +43,8 @@
       "type": "stat",
       "title": "Bronze size (GiB)",
       "gridPos": {
-        "x": 0,
-        "y": 11,
+        "x": 8,
+        "y": 3,
         "w": 4,
         "h": 5
       },
@@ -114,8 +114,8 @@
       "type": "stat",
       "title": "Total events",
       "gridPos": {
-        "x": 4,
-        "y": 11,
+        "x": 20,
+        "y": 3,
         "w": 4,
         "h": 5
       },
@@ -185,8 +185,8 @@
       "type": "stat",
       "title": "EKS batch (s)",
       "gridPos": {
-        "x": 8,
-        "y": 11,
+        "x": 12,
+        "y": 8,
         "w": 4,
         "h": 5
       },
@@ -259,8 +259,8 @@
       "type": "stat",
       "title": "Generator events/s",
       "gridPos": {
-        "x": 12,
-        "y": 11,
+        "x": 16,
+        "y": 8,
         "w": 4,
         "h": 5
       },
@@ -330,8 +330,8 @@
       "type": "stat",
       "title": "Bronze \u2192 Silver compression",
       "gridPos": {
-        "x": 16,
-        "y": 11,
+        "x": 8,
+        "y": 8,
         "w": 4,
         "h": 5
       },
@@ -402,7 +402,7 @@
       "title": "Tests passing",
       "gridPos": {
         "x": 20,
-        "y": 11,
+        "y": 8,
         "w": 4,
         "h": 5
       },
@@ -473,9 +473,9 @@
       "title": "Data-lake zone sizes (live, bytes)",
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 13,
         "w": 12,
-        "h": 9
+        "h": 8
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -549,12 +549,12 @@
     {
       "id": 40,
       "type": "table",
-      "title": "Pipeline stage timings (EKS run, 2026-05-20)",
+      "title": "Pipeline stage timings (one full EKS batch run, snapshot)",
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 13,
         "w": 12,
-        "h": 9
+        "h": 8
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -725,7 +725,8 @@
             }
           ]
         }
-      ]
+      ],
+      "description": "Historical snapshot from one full batch run on the 8.2 GiB cohort. Static \u2014 NOT live. Source: build-time pipeline_stages.json."
     },
     {
       "id": 50,
@@ -733,9 +734,9 @@
       "title": "Live alert ingestion rate (alerts / minute)",
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 21,
         "w": 24,
-        "h": 9
+        "h": 8
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -889,7 +890,7 @@
         "x": 0,
         "y": 3,
         "w": 4,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -963,7 +964,7 @@
         "x": 4,
         "y": 3,
         "w": 4,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -1030,10 +1031,10 @@
       "title": "Silver size (MB)",
       "description": "Cleaned, deduped Parquet on HDFS \u2014 rebuilt every 5 min by spark-batch-hdfs.",
       "gridPos": {
-        "x": 0,
-        "y": 7,
+        "x": 12,
+        "y": 3,
         "w": 4,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -1100,10 +1101,10 @@
       "title": "Gold size (KB)",
       "description": "Per-patient daily features (broadcast join with patient_dim, \u00b130 min EHR join).",
       "gridPos": {
-        "x": 4,
-        "y": 7,
+        "x": 16,
+        "y": 3,
         "w": 4,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -1170,10 +1171,10 @@
       "title": "EDFs streamed",
       "description": "Bronze-streamer processed this many EDFs from S3 since deploy.",
       "gridPos": {
-        "x": 8,
-        "y": 7,
+        "x": 0,
+        "y": 8,
         "w": 4,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -1244,10 +1245,10 @@
       "title": "Alerts in Cassandra",
       "description": "Speed layer's foreachBatch writes alerts here continuously.",
       "gridPos": {
-        "x": 12,
-        "y": 7,
+        "x": 4,
+        "y": 8,
         "w": 4,
-        "h": 4
+        "h": 5
       },
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
