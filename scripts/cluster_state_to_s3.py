@@ -293,6 +293,12 @@ def main() -> int:
                 "alerts_total":                     cassandra.get("alerts_total"),
                 "live_datanodes":                   hdfs.get("live_datanodes"),
                 "under_replicated_blocks":          hdfs.get("under_replicated"),
+                # ─── cluster posture (so the Pipeline dashboard can show it too) ───
+                "pods_running":                     pods["running"],
+                "pods_total":                       pods["total"],
+                "nodes_ready":                      nodes["ready"],
+                "hdfs_dfs_used_mib":                round((hdfs.get("dfs_used") or 0) / (1024 ** 2), 1),
+                "streamer_progress_pct":           round(100 * edfs / max(raw_edf_count, 1), 1) if raw_edf_count else 0,
             })
             # Bundle for power users
             put_json(s3, args.bucket, "cluster_state.json", {

@@ -44,7 +44,7 @@
       "title": "Bronze size (GiB)",
       "gridPos": {
         "x": 0,
-        "y": 7,
+        "y": 11,
         "w": 4,
         "h": 5
       },
@@ -115,7 +115,7 @@
       "title": "Total events",
       "gridPos": {
         "x": 4,
-        "y": 7,
+        "y": 11,
         "w": 4,
         "h": 5
       },
@@ -186,7 +186,7 @@
       "title": "EKS batch (s)",
       "gridPos": {
         "x": 8,
-        "y": 7,
+        "y": 11,
         "w": 4,
         "h": 5
       },
@@ -260,7 +260,7 @@
       "title": "Generator events/s",
       "gridPos": {
         "x": 12,
-        "y": 7,
+        "y": 11,
         "w": 4,
         "h": 5
       },
@@ -331,7 +331,7 @@
       "title": "Bronze \u2192 Silver compression",
       "gridPos": {
         "x": 16,
-        "y": 7,
+        "y": 11,
         "w": 4,
         "h": 5
       },
@@ -402,7 +402,7 @@
       "title": "Tests passing",
       "gridPos": {
         "x": 20,
-        "y": 7,
+        "y": 11,
         "w": 4,
         "h": 5
       },
@@ -473,7 +473,7 @@
       "title": "Data-lake zone sizes (MiB, log)",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 16,
         "w": 12,
         "h": 9
       },
@@ -552,7 +552,7 @@
       "title": "Pipeline stage timings (EKS run, 2026-05-20)",
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 16,
         "w": 12,
         "h": 9
       },
@@ -733,7 +733,7 @@
       "title": "Live alert ingestion rate (alerts / minute)",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 25,
         "w": 24,
         "h": 9
       },
@@ -1017,6 +1017,450 @@
           "columns": [
             {
               "selector": "raw_edf_files",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Silver size (MB)",
+      "description": "Cleaned, deduped Parquet on HDFS \u2014 rebuilt every 5 min by spark-batch-hdfs.",
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "silver_size_mib",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "stat",
+      "title": "Gold size (KB)",
+      "description": "Per-patient daily features (broadcast join with patient_dim, \u00b130 min EHR join).",
+      "gridPos": {
+        "x": 4,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "gold_size_kib",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "type": "stat",
+      "title": "EDFs streamed",
+      "description": "Bronze-streamer processed this many EDFs from S3 since deploy.",
+      "gridPos": {
+        "x": 8,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "blue"
+              },
+              {
+                "value": 100,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "edfs_processed_by_streamer",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "type": "stat",
+      "title": "Alerts in Cassandra",
+      "description": "Speed layer's foreachBatch writes alerts here continuously.",
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "blue"
+              },
+              {
+                "value": 10000,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "alerts_total",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "type": "stat",
+      "title": "HDFS DataNodes",
+      "description": "Should be 2 (RF=2). Drop \u2192 cluster degraded.",
+      "gridPos": {
+        "x": 16,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 2,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "live_datanodes",
+              "text": "value",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "type": "stat",
+      "title": "Pods Running",
+      "description": "All long-running pods; ephemeral CronJob pods come and go.",
+      "gridPos": {
+        "x": 20,
+        "y": 7,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "infinity-brainwatch"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 5,
+                "color": "yellow"
+              },
+              {
+                "value": 10,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/"
+        },
+        "textMode": "value",
+        "graphMode": "none",
+        "colorMode": "background",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/pipeline_metrics.json",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "pods_running",
               "text": "value",
               "type": "number"
             }

@@ -125,6 +125,11 @@ def main() -> int:
     sleep_s = int(os.environ.get("SLEEP_BETWEEN_EDF", "20"))
     window_s = float(os.environ.get("WINDOW_SECONDS", "10.0"))
     max_windows = int(os.environ.get("MAX_WINDOWS_PER_FILE", "600"))
+    # We deliberately do NOT copy the raw EDF binary into bronze.
+    # Bronze stores derived features + a `source_uri` reference back to the
+    # immutable raw blob on S3 (the "point pattern"). See QA-BANK §17.18 for
+    # the reasoning — EDFs are 10s–100s MB each, too large for a feature
+    # store; S3 is durable; clinicians/auditors can fetch raw via source_uri.
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     if state_path.exists():
