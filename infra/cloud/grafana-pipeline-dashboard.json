@@ -469,8 +469,8 @@
     },
     {
       "id": 30,
-      "type": "barchart",
-      "title": "Data-lake zone sizes (live, bytes)",
+      "type": "bargauge",
+      "title": "Data-lake zone sizes (live)",
       "gridPos": {
         "x": 0,
         "y": 13,
@@ -484,6 +484,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "decbytes",
+          "min": 0,
           "color": {
             "mode": "thresholds"
           },
@@ -493,28 +494,51 @@
               {
                 "value": null,
                 "color": "blue"
+              },
+              {
+                "value": 50000000,
+                "color": "green"
+              },
+              {
+                "value": 1000000000,
+                "color": "yellow"
+              },
+              {
+                "value": 3000000000,
+                "color": "orange"
               }
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "${__field.labels.zone}"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "orientation": "horizontal",
-        "xField": "bytes",
-        "showValue": "always",
-        "stacking": {
-          "group": "A",
-          "mode": "none"
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^bytes$/"
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "legend": {
-          "showLegend": false,
-          "displayMode": "list",
-          "placement": "bottom"
+        "text": {
+          "titleSize": 14,
+          "valueSize": 18
         }
       },
       "targets": [
