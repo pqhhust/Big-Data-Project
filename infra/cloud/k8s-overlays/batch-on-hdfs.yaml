@@ -53,10 +53,15 @@ spec:
                     $HDFS -mkdir -p "$d" || true
                   done
 
+                  # Track which streams had source data on the PVC; we will
+                  # require those streams to be visible on HDFS afterwards.
+                  EXPECTED_STREAMS=""
+
                   # Initial-cohort files (top of PVC) — already partitioned by stream
                   for stream in eeg ehr; do
                     if [ -d /data/lake/bronze/$stream ] && [ "$(ls -A /data/lake/bronze/$stream 2>/dev/null)" ]; then
                       $HDFS -put -f /data/lake/bronze/$stream/* /lake/bronze/$stream/ || true
+                      EXPECTED_STREAMS="$EXPECTED_STREAMS $stream"
                     fi
                   done
 
@@ -66,11 +71,30 @@ spec:
                   for stream in eeg edf; do
                     if [ -d /data/lake/bronze/bronze_real/$stream ] && [ "$(ls -A /data/lake/bronze/bronze_real/$stream 2>/dev/null)" ]; then
                       $HDFS -put -f /data/lake/bronze/bronze_real/$stream/* /lake/bronze/$stream/ || true
+                      EXPECTED_STREAMS="$EXPECTED_STREAMS $stream"
                     fi
                   done
 
                   echo "==== HDFS lake after sync ===="
                   $HDFS -du -h /lake
+
+                  # Post-put assertion: every stream that had source data on the
+                  # PVC must now be visible on HDFS. This catches the silent-
+                  # success failure mode in which `hdfs dfs` (without an
+                  # explicit -fs) falls back to the local filesystem and the
+                  # Job exits 0 while HDFS remains empty.
+                  STREAMS_DEDUP=$(echo "$EXPECTED_STREAMS" | tr ' ' '\n' | awk 'NF' | sort -u)
+                  for stream in $STREAMS_DEDUP; do
+                    if ! $HDFS -test -d "/lake/bronze/$stream"; then
+                      echo "ASSERTION FAILED: /lake/bronze/$stream does not exist on HDFS after -put" >&2
+                      exit 1
+                    fi
+                    if [ -z "$($HDFS -ls "/lake/bronze/$stream" 2>/dev/null | sed -n '2,$p')" ]; then
+                      echo "ASSERTION FAILED: /lake/bronze/$stream is empty on HDFS after -put" >&2
+                      exit 1
+                    fi
+                  done
+                  echo "POST-PUT ASSERTION OK: streams visible on HDFS:${EXPECTED_STREAMS:- (none — source PVC was empty)}"
               envFrom:
                 - configMapRef: {name: hdfs-env}
               volumeMounts:
