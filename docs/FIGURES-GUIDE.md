@@ -79,33 +79,146 @@ runs where" in the deployed system. Every box in the diagram should
 correspond to a real pod or S3 bucket; every arrow should correspond
 to a real data flow.
 
-**Components to draw (each as one box).** Group by lane:
+**Components to draw (each as one box, with resource annotations).**
+Every spec below is the real number from the manifests in
+`infra/cloud/k8s-overlays/`. The figure should look like a real
+deployment diagram — each box carries (workload kind, replicas,
+image, CPU req → limit, mem req → limit, PVC size if any).
 
-- **Source lane (top left):**
-  - BDSP S3 (external)
-  - `s3://brainwatch-capstone-923884399064/raw_edf/` (project bucket
-    holding 17 GiB / 1,571 EDFs)
-  - Local download station (developer machine running
-    `scripts/download_real_edf.py`)
-- **Streamer + bronze lane:**
-  - `bronze-streamer` Deployment (the long-running pod)
-  - `bronze-pvc` (EBS-backed PVC, 20 GiB)
-- **Batch lane:**
-  - `hdfs-bronze-loader` CronJob (every 5 min)
-  - HDFS NameNode StatefulSet (5 GiB EBS)
-  - HDFS DataNode StatefulSet × 2 (20 GiB EBS each, RF=2)
-  - `spark-batch-hdfs` CronJob (every 5 min, runs `run_batch.py`)
-  - HDFS `/lake/silver` and `/lake/gold` (logical paths inside HDFS)
-- **Speed lane:**
-  - `kafka-producer` Deployment
-  - Kafka 3.9 KRaft StatefulSet (1 broker, 4 partitions per topic)
-  - `speed-layer` Spark Structured Streaming Deployment
-- **Serving lane:**
-  - Cassandra 4.1 StatefulSet (RF=1)
-  - `cassandra-exporter` Deployment (writes alert roll-ups to S3)
-  - `cluster-state-exporter` Deployment (writes cluster-state JSON to S3)
-  - `s3://brainwatch-dashboard-923884399064/` (top right; static website)
-  - Grafana 11 (NodePort)
+**EKS cluster envelope (the outer container of the whole diagram).**
+
+```
+EKS 1.30, region us-east-1
+nodegroup workers: 2 × t3.xlarge (4 vCPU, 16 GiB RAM each)
+node root volume: 100 GiB gp3 per node
+storage class: gp3 (EBS), CSI driver
+namespace: brainwatch
+```
+
+Draw the EKS envelope as a labelled outer rectangle that contains
+every pod / PVC; S3 buckets and BDSP sit *outside* the envelope.
+
+- **Source lane (outside EKS, top-left):**
+  - **BDSP S3** (external, credentialed access).
+  - **`s3://brainwatch-capstone-923884399064/raw_edf/`** —
+    project mirror bucket (17.05 GiB across 1,571 EDFs across 4 sites).
+  - **Local download station** — developer machine running
+    `scripts/download_real_edf.py` (one-shot, not in the cluster).
+
+- **Streamer + bronze lane (inside EKS):**
+  - **`bronze-streamer`** — Deployment, **replicas: 1**,
+    `strategy: Recreate` (single-writer guarantee on bronze-pvc).
+    - InitContainer: `amazon/aws-cli:2.17.0` (pulls wheel + scripts
+      from S3).
+    - Main container: `python:3.11-slim`.
+    - **CPU: 500m → 1**,  **memory: 1 Gi → 2 Gi**.
+    - Env: `RAW_EDF_BUCKET=brainwatch-capstone-923884399064`,
+      `SLEEP_BETWEEN_EDF=20` (demo cadence; `=2` during burst).
+  - **`bronze-pvc`** — PVC, **20 GiB gp3** (RWO).
+    Capped archive: `ARCHIVE_RAW_CAP_GIB=4`.
+
+- **Batch lane (inside EKS):**
+  - **`hdfs-bronze-loader`** — CronJob, **schedule: `*/5 * * * *`**
+    (every 5 min), `concurrencyPolicy: Forbid`,
+    `ttlSecondsAfterFinished: 1800`.
+    - Container: `bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8`
+      (used only for the `hdfs dfs -put` client).
+    - Reads `bronze-pvc` (read-only mount), writes
+      `hdfs://hdfs-namenode-0.../lake/bronze/{eeg,edf}/`.
+    - Post-`-put` assertion: `EXPECTED_STREAMS` non-empty on HDFS.
+  - **HDFS NameNode** — StatefulSet, **replicas: 1**,
+    `bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8`.
+    - **CPU: 250m → 1**,  **memory: 768 Mi → 1500 Mi**.
+    - PVC: **5 GiB gp3** (`namenode-data`, metadata only).
+    - Service: ClusterIP, ports 9870 (UI) + 8020 (RPC).
+  - **HDFS DataNode** — StatefulSet, **replicas: 2**, RF=2,
+    64 MiB block, `bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8`.
+    - **CPU: 250m → 1**,  **memory: 512 Mi → 1 Gi** (per pod).
+    - PVC: **20 GiB gp3** per replica (`datanode-data-hdfs-datanode-{0,1}`).
+    - Total raw capacity: 40 GiB; effective at RF=2: 20 GiB.
+  - **`spark-batch-hdfs`** — CronJob, **schedule:
+    `2-59/5 * * * *`** (every 5 min, offset by 2 min so the loader
+    lands first), `activeDeadlineSeconds: 600`.
+    - Container: `spark:3.5.5-scala2.12-java17-python3-ubuntu`.
+    - Driver: `--master 'local[4]' --driver-memory 4g
+      --shuffle-partitions 16`, `spark.sql.adaptive.enabled=true`.
+    - **CPU: 1 → 2**,  **memory: 3 Gi → 5 Gi**.
+    - Reads HDFS bronze, writes HDFS silver + gold.
+  - **HDFS `/lake/silver`** and **HDFS `/lake/gold`** — logical
+    Parquet paths inside the DataNodes (draw as dashed sub-boxes
+    inside the DataNode group; not separate pods).
+
+- **Speed lane (inside EKS):**
+  - **`kafka-producer`** — Deployment, **replicas: 1**.
+    - InitContainer: `amazon/aws-cli:2.17.0`. Main: `python:3.11-slim`.
+    - **CPU: 250m → 1**,  **memory: 512 Mi → 1 Gi**.
+    - `acks=all`, `linger.ms=20`, `compression.type=gzip`.
+  - **Kafka 3.9 KRaft** — StatefulSet, **replicas: 1**,
+    `apache/kafka:3.9.0`.
+    - **CPU: 500m → 1**,  **memory: 1 Gi → 2 Gi**.
+    - PVC: **10 GiB gp3** (`kafka-data-kafka-0`).
+    - Topics: `eeg.raw` and `ehr.updates`,
+      **4 partitions per topic**, replication factor 1
+      (single broker capstone posture).
+  - **`speed-layer`** — Deployment, **replicas: 1**,
+    `spark:3.5.5-scala2.12-java17-python3-ubuntu`.
+    - **CPU: 1 → 2**,  **memory: 3 Gi → 5 Gi**.
+    - Spark config: `--master 'local[*]' --driver-memory 3g
+      --conf spark.sql.shuffle.partitions=8`,
+      `spark.sql.adaptive.enabled=true`.
+    - Streaming config: `withWatermark("event_time", "30 seconds")`,
+      `window("30 seconds", "15 seconds")`,
+      `maxOffsetsPerTrigger=5000`,
+      `trigger(processingTime="5 seconds")`,
+      checkpoint on **`checkpoints-pvc` (5 GiB gp3)**.
+  - **`checkpoints-pvc`** — PVC, **5 GiB gp3** (Spark state store).
+
+- **Serving lane (inside EKS):**
+  - **Cassandra 4.1** — StatefulSet, **replicas: 1**, `RF=1`,
+    `SimpleStrategy`, `cassandra:4.1`.
+    - **CPU: 500m → 2**,  **memory: 1 Gi → 4 Gi**.
+    - PVC: **20 GiB gp3** (`cassandra-data-cassandra-0`).
+    - Schema: `alerts(patient_id, alert_time, severity, anomaly_score,
+      explanation)` PK `(patient_id, alert_time)`,
+      clustering DESC.
+  - **`cassandra-exporter`** — Deployment, **replicas: 1**,
+    `python:3.11-slim`.
+    - **CPU: 100m → 500m**,  **memory: 256 Mi → 768 Mi**.
+    - Polls Cassandra every 30 s, writes alert roll-up JSONs to
+      `s3://brainwatch-dashboard-923884399064/`.
+  - **`cluster-state-exporter`** — Deployment, **replicas: 1**,
+    `alpine/k8s:1.30.0`.
+    - **CPU: 50m → 250m**,  **memory: 128 Mi → 384 Mi**.
+    - ServiceAccount `cluster-state-reader` with `get/list` on
+      pods/deployments/statefulsets/jobs/cronjobs (namespace) + nodes
+      (ClusterRole).
+    - Probes: `kubectl get pods/nodes/cronjobs/jobs`,
+      `kubectl exec sts/hdfs-namenode -- hdfs dfsadmin -report`,
+      `kubectl exec sts/cassandra -- cqlsh -e "SELECT COUNT(*)..."`.
+    - Writes 7 flat JSONs to S3 every 30 s.
+  - **Grafana 11** — Deployment, **replicas: 1**,
+    `grafana/grafana:11.2.0`.
+    - **CPU: 250m → 1**,  **memory: 384 Mi → 1 Gi**.
+    - PVC: **5 GiB gp3** (`grafana-data`).
+    - Service: NodePort (port 30030 → 3000).
+    - Datasource: `yesoreyeram-infinity-datasource` over HTTPS to
+      the S3 dashboard bucket.
+
+- **Serving sinks (outside EKS, top-right):**
+  - **`s3://brainwatch-dashboard-923884399064/`** — static-website
+    S3 bucket holding the alert roll-up JSONs and the cluster-state
+    JSONs (consumed by Grafana via Infinity datasource).
+
+**Cluster resource totals (good to call out on the diagram).**
+
+| Quantity | Value |
+|---|---|
+| EKS worker nodes | 2 × t3.xlarge (8 vCPU, 32 GiB RAM total) |
+| Total pod CPU requests | ~5.6 vCPU |
+| Total pod memory requests | ~12 GiB |
+| Total EBS provisioned | 5 + 20 + 20 + 10 + 20 + 5 + 5 = **85 GiB** across 7 PVCs |
+| EBS snapshots at pause | 8 (the 7 PVCs above + bronze-pvc) |
+| Headroom under EKS node capacity | ~30% CPU / ~60% memory at steady state |
 
 **Arrows to draw.**
 
@@ -174,14 +287,27 @@ placeholder line for the `\includegraphics` line.
 textbook view, not the BrainWatch-specific topology — keep it
 schematic.
 
-**Components to draw (three boxes).**
+**Components to draw (three boxes, each annotated with BrainWatch
+numbers so the triad is project-specific, not generic textbook).**
 
-- **Batch layer** (top-left box). Inside: "HDFS bronze → Spark batch
-  → silver / gold Parquet".
-- **Speed layer** (bottom-left box). Inside: "Kafka → Spark
-  Structured Streaming → Cassandra alerts".
-- **Serving layer** (right box, spanning both). Inside: "Grafana
-  over S3 JSON + Cassandra".
+- **Batch layer** (top-left box). Inside:
+  - "HDFS bronze → Spark batch → silver / gold Parquet"
+  - CronJob `spark-batch-hdfs`, schedule `*/5 min`
+  - Spark 3.5.5, `local[4]`, 4 GiB driver, 16 shuffle partitions
+  - **Per-fire runtime: ~50 s** (47.8 s on 8.2 GiB local)
+  - Silver: 0.87 MiB, Gold: 16.9 KiB after each fire
+- **Speed layer** (bottom-left box). Inside:
+  - "Kafka 3.9 KRaft → Spark Structured Streaming → Cassandra"
+  - 4 partitions/topic, 1.3M+ events each
+  - 30 s watermark, 30 s/15 s window, `trigger=5 s`
+  - **60–100 alerts per micro-batch**
+  - **p50 alert visibility ≈ 12 s**
+- **Serving layer** (right box, spanning both). Inside:
+  - "Grafana 11 over S3 JSON + Cassandra"
+  - Cassandra PK `(patient_id, alert_time)` absorbs replays
+  - Two dashboards: Real-Time Alerts + Architecture Status
+  - **Survives full cluster teardown** (S3 keeps serving)
+  - Paused storage cost ≈ \$1/month
 
 **Arrows.**
 
@@ -201,43 +327,52 @@ schematic.
 > merges both at query time. BrainWatch's realisation is in
 > Chapter~\ref{cha:prototyping}.
 
-**How to draw it in TikZ.** Drop this into `Background.tex` in
-place of the `\pqhung{FIG: ...}` block:
+**How to draw it in TikZ (with BrainWatch numbers baked in).** Drop
+this into `Background.tex` in place of the `\pqhung{FIG: ...}` block:
 
 ```latex
 \begin{figure}[ht]
 \centering
 \begin{tikzpicture}[
-  box/.style={draw, rounded corners, minimum width=4cm, minimum height=1.3cm,
-              align=center, font=\small},
+  box/.style={draw, rounded corners, minimum width=5.4cm,
+              minimum height=1.8cm, align=center, font=\small},
+  smallbox/.style={draw, rounded corners, minimum width=3.0cm,
+                   minimum height=1.4cm, align=center, font=\small},
   arr/.style={-Latex, thick},
   every node/.style={font=\small}
 ]
-\node[box, fill=gray!10]  (raw)    {Raw archive\\(Amazon S3)};
-\node[box, fill=blue!10, right=2cm of raw, yshift=1.5cm]
-                          (batch)  {Batch layer\\HDFS bronze $\to$ Spark\\ $\to$ silver / gold Parquet};
-\node[box, fill=orange!10, right=2cm of raw, yshift=-1.5cm]
-                          (speed)  {Speed layer\\Kafka $\to$ Spark Structured Streaming\\$\to$ Cassandra alerts};
-\node[box, fill=green!10, right=2cm of batch, yshift=-1.5cm,
-       minimum height=3cm]
-                          (serve)  {Serving layer\\Grafana over S3 JSON\\ + Cassandra};
+\node[smallbox, fill=gray!10]  (raw) {Raw archive\\(Amazon S3)\\17 GiB / 1{,}571 EDFs};
+\node[box, fill=blue!10, right=2cm of raw, yshift=1.8cm] (batch)
+   {\textbf{Batch layer}\\HDFS bronze $\to$ Spark $\to$ silver / gold\\
+    CronJob \texttt{*/5 min}, Spark 3.5.5 \texttt{local[4]}\\
+    runtime $\sim 50$~s, silver 0.87~MiB / gold 16.9~KiB};
+\node[box, fill=orange!10, right=2cm of raw, yshift=-1.8cm] (speed)
+   {\textbf{Speed layer}\\Kafka 3.9 KRaft $\to$ Spark Structured\\
+    Streaming $\to$ Cassandra alerts\\
+    30~s watermark, 30/15~s window, trigger 5~s\\
+    60--100 alerts / micro-batch, p50 $\approx 12$~s};
+\node[box, fill=green!10, right=2cm of batch, yshift=-1.8cm,
+       minimum height=4cm] (serve)
+   {\textbf{Serving layer}\\Grafana 11 over S3 JSON\\ + Cassandra (RF=1)\\
+    PK \texttt{(patient\_id, alert\_time)}\\
+    survives cluster teardown};
 \draw[arr] (raw) -- (batch.west);
 \draw[arr] (raw) -- (speed.west);
 \draw[arr] (batch.east) -- node[above]{batch view} (serve.north west);
 \draw[arr] (speed.east) -- node[below]{speed view} (serve.south west);
-\node[below=1cm of serve, font=\footnotesize, text width=4cm,
+\node[below=0.8cm of serve, font=\footnotesize, text width=5cm,
        align=center, text=gray]
-       {Views merged at query time (eventual consistency).};
+       {Views merged at query time\\(eventual consistency).};
 \end{tikzpicture}
-\caption{Lambda architecture as a three-layer triad.}
+\caption{Lambda architecture as a three-layer triad, annotated with
+the BrainWatch realisation of each layer.}
 \label{fig:lambda-triad}
 \end{figure}
 ```
 
 You will need to add `\usepackage{tikz}` and
 `\usetikzlibrary{arrows.meta, positioning}` to `me310report.tex` if
-not already present. The `arrows.meta` library provides the `Latex`
-arrow style.
+not already present.
 
 **LaTeX swap (if you'd rather use a PDF from draw.io).**
 
@@ -361,6 +496,68 @@ count.
 project.
 
 ---
+
+## Reference: the resource table to embed in F1
+
+If the topology diagram (F1) gets too crowded with per-box
+annotations, an alternative is to keep each box minimal (name only)
+and place a **legend table** beside the diagram with all the
+resource numbers. The table below is ready to paste into the same
+figure float as F1 (e.g. via a TikZ-and-tabular `minipage` pair).
+
+```latex
+\begin{table}[ht]
+\centering
+\caption{Workload inventory for the topology in Figure~\ref{fig:arch}.}
+\label{tab:workloads}
+\begin{tabularx}{\linewidth}{@{}lllrr>{\RaggedRight\arraybackslash}X@{}}
+\toprule
+\textbf{Workload} & \textbf{Kind} & \textbf{Replicas} & \textbf{CPU req $\to$ lim} & \textbf{Mem req $\to$ lim} & \textbf{PVC / image} \\
+\midrule
+HDFS NameNode       & StatefulSet & 1 & 250m $\to$ 1 & 768Mi $\to$ 1500Mi & 5~GiB; \texttt{bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8} \\
+HDFS DataNode       & StatefulSet & 2 & 250m $\to$ 1 & 512Mi $\to$ 1Gi    & 20~GiB each; same image \\
+Kafka (KRaft)       & StatefulSet & 1 & 500m $\to$ 1 & 1Gi $\to$ 2Gi      & 10~GiB; \texttt{apache/kafka:3.9.0} \\
+Cassandra           & StatefulSet & 1 & 500m $\to$ 2 & 1Gi $\to$ 4Gi      & 20~GiB; \texttt{cassandra:4.1} \\
+Grafana             & Deployment  & 1 & 250m $\to$ 1 & 384Mi $\to$ 1Gi    & 5~GiB; \texttt{grafana/grafana:11.2.0} \\
+Bronze streamer     & Deployment  & 1 & 500m $\to$ 1 & 1Gi $\to$ 2Gi      & uses \texttt{bronze-pvc} 20~GiB; \texttt{python:3.11-slim} \\
+Kafka producer      & Deployment  & 1 & 250m $\to$ 1 & 512Mi $\to$ 1Gi    & --- \\
+Speed layer         & Deployment  & 1 & 1 $\to$ 2    & 3Gi $\to$ 5Gi      & uses \texttt{checkpoints-pvc} 5~GiB; \texttt{spark:3.5.5-...} \\
+Cassandra exporter  & Deployment  & 1 & 100m $\to$ 500m & 256Mi $\to$ 768Mi & writes to S3; \texttt{python:3.11-slim} \\
+Cluster-state exp.  & Deployment  & 1 & 50m $\to$ 250m  & 128Mi $\to$ 384Mi & ServiceAccount \texttt{cluster-state-reader}; \texttt{alpine/k8s:1.30.0} \\
+HDFS bronze loader  & CronJob     & \texttt{*/5 m} & ---  & --- & reads \texttt{bronze-pvc}, writes HDFS \\
+Spark batch (HDFS)  & CronJob     & \texttt{2-59/5 m} & 1 $\to$ 2 & 3Gi $\to$ 5Gi & \texttt{spark:3.5.5-...}, \texttt{local[4]}, 16 shuffle parts \\
+\bottomrule
+\end{tabularx}
+\end{table}
+```
+
+## Reference: EBS snapshot inventory (paste-ready table)
+
+Eight snapshots underpin the pause-resume cycle. The canonical
+mapping is in `artifacts/eks/snapshots/index.txt`. Annotate F1 or
+Vision/Reflections L11 with a small table built from those rows:
+
+```latex
+\begin{table}[ht]
+\centering
+\caption{EBS snapshot inventory at the most recent pause.}
+\label{tab:snapshots}
+\begin{tabularx}{\linewidth}{@{}lllr@{}}
+\toprule
+\textbf{PVC} & \textbf{Source volume} & \textbf{Snapshot id} & \textbf{Provisioned} \\
+\midrule
+\texttt{namenode-data-hdfs-namenode-0}   & \texttt{vol-00ea38d307c16a60b} & \texttt{snap-00171850c89fb181f} & 5~GiB  \\
+\texttt{datanode-data-hdfs-datanode-0}   & \texttt{vol-02faf5b4425a87186} & \texttt{snap-03d0070e899587114} & 20~GiB \\
+\texttt{datanode-data-hdfs-datanode-1}   & \texttt{vol-065217cc6f51394fe} & \texttt{snap-03fab486ccff11c98} & 20~GiB \\
+\texttt{kafka-data-kafka-0}              & \texttt{vol-01ffcd4646c5ffbcd} & \texttt{snap-047f50e399deb4339} & 10~GiB \\
+\texttt{cassandra-data-cassandra-0}      & \texttt{vol-06606813872ac7b47} & \texttt{snap-0f39245bdf4b729a9} & 20~GiB \\
+\texttt{grafana-data}                    & \texttt{vol-0a7016a6b9f21fef9} & \texttt{snap-08019cf73fb58a4c2} & 5~GiB  \\
+\texttt{checkpoints-pvc}                 & \texttt{vol-06e24e1fb3e5eaf25} & \texttt{snap-09282cc948581f732} & 5~GiB  \\
+\texttt{bronze-pvc}                      & \texttt{vol-0610a5914ee051970} & \texttt{snap-04cdf68c2b81bb7ea} & 20~GiB \\
+\bottomrule
+\end{tabularx}
+\end{table}
+```
 
 ## How to swap a placeholder for the real figure (quick recipe)
 
