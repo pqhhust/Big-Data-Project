@@ -34,6 +34,7 @@ from here in the order you should open it.
 13. [Cost, teardown, and resume from snapshots](#13-cost-teardown-resume)
 14. [Glossary](#14-glossary)
 15. [Cross-doc map](#15-cross-doc-map)
+16. [Lessons learned, in plain English](#16-lessons-learned-in-plain-english)
 
 ---
 
@@ -738,6 +739,771 @@ Module ownership per team member | `CONTRIBUTORS.md`
 Snapshot IDs to resume from | `artifacts/eks/snapshots/index.txt`
 The pause/resume cookbook | `infra/cloud/resume_from_snapshots.sh`
 The EKS overlay (single source of truth) | `infra/cloud/k8s-overlays/real-pipeline.yaml`
+
+---
+
+## 16. Lessons learned, in plain English
+
+The eleven lessons in the report (`Reflections.tex` in the Overleaf
+project) all use the rubric's four-part structure (Problem Description
+→ Approaches Tried → Final Solution → Key Takeaways). The version
+below is the same content in plain language, so a new reader can
+understand each lesson without opening the report. Lessons will be
+added one at a time.
+
+### Lesson 1 — Data Ingestion
+
+**Problem (what hurt us).**
+The BDSP catalogue gives us EEG recordings as one CSV per hospital
+site. The CSVs are *not* schema-aligned across the five sites: one
+site uses `DurationInSeconds`, another uses `RecordingDuration`; one
+uses `SiteID`, another uses `InstituteID`; the service column has a
+per-site vocabulary (S0001's `LTM` maps to a different BIDS task code
+than S0002's `LTM`).
+
+When we measured the full catalogue (306,741 rows) we found:
+
+- **11,579 rows (3.8%)** with the duration field empty,
+- **427 rows** below the 30-second hook-up threshold (too short to keep),
+- **143,369 rows** with the service literally written `UNSPECIFIED`.
+
+Three concrete bugs followed from this:
+
+1. The per-site download script silently skipped every row whose
+   column name did not match the one it hard-coded — so the
+   downloader's success count was wrong without us noticing.
+2. The manifest builder emitted broken S3 keys whenever the row's
+   BIDS folder identifier was missing.
+3. The streaming consumer crashed on the *first* malformed JSONL
+   line because it had no quarantine path — one bad record killed
+   the whole streaming query.
+
+The dangerous part is *silent dropping*: a pipeline that throws away
+4% of its inputs without recording the reason looks identical to a
+pipeline with a small bug. Every downstream count became hard to
+trust — silver dedup counts shifted between reruns because the
+upstream had silently dropped different rows.
+
+**What we tried.**
+
+- *Approach 1 — one branch per site.* The first version of
+  `src/brainwatch/ingestion/eeg_inventory.py` carried `if site ==
+  "S0001": ...; elif site == "S0002": ...`. Trade-off: every new site
+  adds another reviewed branch, and the alias differences sit inside
+  those branches as magic strings. Broke down beyond three sites.
+- *Approach 2 — fallback chain at the parsing boundary.* Use
+  `row.get("DurationInSeconds") or row.get("RecordingDuration") or ""`.
+  Trade-off: tolerates new aliases with zero code change, but a typo
+  in a new alias silently returns the empty string. Mitigated by a
+  unit test that asserts the parsed row has at least one non-empty
+  field.
+- *Approach 3 — strict `pydantic` schema with per-field validators.*
+  Rejected. The canonical BDSP schema itself drifts across
+  refreshes, so a strict schema would convert a recoverable drift
+  into a hard pipeline failure.
+
+**What we shipped.**
+
+The fallback chain lives in
+`src/brainwatch/ingestion/eeg_inventory.py` inside `parse_duration()`
+and `build_candidate_s3_keys()`. Rows with a missing duration are
+flagged into the manifest's quality counters and *excluded* from
+`select_subset()`, so the downloader never even attempts a key whose
+duration is unknown. The bronze writer
+(`src/brainwatch/ingestion/bronze_writer.py`) routes every validation
+failure to a daily dead-letter JSONL file under
+`data/lake/_dead_letter/` with an explicit `reason` field. The
+service-to-task mapping lives in a single `SERVICE_TASK_MAP`
+dictionary; an unknown service falls back to `["EEG"]`, the BIDS
+default.
+
+Measured outcome: on the demonstration cohort the dead-letter queue
+absorbed 17 malformed events across a thirty-minute run; none of them
+stopped the pipeline, and the silver dedup count became stable across
+reruns. The unit test
+`tests/test_eeg_inventory.py::test_parse_duration_missing` pins the
+fallback path against synthetic hostile inputs.
+
+**Takeaway in one sentence.**
+*Quarantine, do not discard.* Every validation / dedup / quality gate
+in BrainWatch writes the rejected record to disk with a `reason`
+field, so the next incident is investigable from the data itself,
+with no reliance on cluster log retention.
+
+**Where to look in the repo.**
+
+- Parser with fallback chain → `src/brainwatch/ingestion/eeg_inventory.py`
+  (`parse_duration`, `build_candidate_s3_keys`, `SERVICE_TASK_MAP`)
+- Dead-letter queue → `src/brainwatch/ingestion/dead_letter.py` +
+  `src/brainwatch/ingestion/bronze_writer.py`
+- Tests pinning the failure modes → `tests/test_eeg_inventory.py`,
+  `tests/test_bronze_writer.py::test_invalid_event_routed_to_dlq`,
+  `tests/test_dead_letter.py`
+
+---
+
+### Lesson 2 — Data Processing with Spark
+
+**Problem (what hurt us).**
+The batch driver in `scripts/run_batch.py` chains four Spark
+functions: `build_eeg_silver` (dedup on `(patient_id, session_id,
+event_time)` + quality flag), `build_ehr_silver` (keep latest version
+via a `row_number()` window), `build_patient_dim` (the small
+patient-keyed dim), and `build_patient_features` (the gold join:
+silver EEG ⋈ silver EHR within ±30 min, then ⋈ broadcast `patient_dim`).
+An early local run on the 8.2 GiB cohort died after ~30 minutes with
+`OutOfMemoryError` on the driver during the gold join.
+`df.explain(extended=True)` showed the patient-dim join executing as
+`SortMergeJoin` even though the dim is only ~2 MiB — an upstream
+`select` projection had obscured the dim's true size from the
+Catalyst optimiser, and the default `10 MiB`
+`spark.sql.autoBroadcastJoinThreshold` did not fire.
+
+**What we tried.**
+
+- *Approach 1 — raise driver memory.* Bump `spark.driver.memory`
+  from 1 → 4 → 24 GiB. Each step delayed the OOM but the join still
+  spilled. A bigger heap masks skew until the next 2× cohort growth,
+  then masks nothing.
+- *Approach 2 — raise `spark.sql.autoBroadcastJoinThreshold`.*
+  10 MiB → 50 MiB. Symptom disappears, but the join strategy is at
+  the mercy of any upstream projection that obscures the size
+  estimate.
+- *Approach 3 — explicit `F.broadcast()` hint at the call site.*
+  One extra symbol; the optimiser can't revert under adaptive query
+  execution; the test that asserts the plan respects the hint
+  becomes cheap.
+
+**What we shipped.**
+The hint sits on the join call in
+`src/brainwatch/processing/gold_layer.py`. We set
+`spark.sql.shuffle.partitions=256` for the 8.2 GiB local run and `16`
+for the in-cluster CronJob; `spark.sql.adaptive.enabled=true` stays
+on. The regression test
+`tests/test_gold_layer.py::test_patient_dim_join_uses_broadcast` reads
+`df.queryExecution.executedPlan` and fails if the plan reverts to
+`SortMergeJoin`. Measured outcome: local batch completes in **47.8 s
+on 8.2 GiB** (16-core `local[*]`, 24 GiB driver heap, 256 shuffle
+partitions); in-cluster CronJob completes in ~50 s per fire on the
+streamer-grown bronze.
+
+**Takeaway in one sentence.**
+*The shortest path to debugging a Spark job that surprises is
+`df.explain(extended=True)`, not a heap-size bump.* Pin the broadcast
+hint and write a plan-inspection test, because output-correctness
+tests are blind to a join that quietly switches strategy.
+
+**Where to look in the repo.**
+
+- Gold-layer join with broadcast hint →
+  `src/brainwatch/processing/gold_layer.py::build_patient_features`
+- Batch driver chaining the four functions → `scripts/run_batch.py`
+- Plan-inspection regression test →
+  `tests/test_gold_layer.py::test_patient_dim_join_uses_broadcast`
+- Spark config tuning →
+  `infra/cloud/k8s-overlays/batch-on-hdfs.yaml`
+  (`spark.sql.shuffle.partitions=16`, AQE on)
+
+---
+
+### Lesson 3 — Stream Processing
+
+**Problem (what hurt us).**
+The canonical Lambda speed-layer design was a stream-stream join of
+`eeg.raw` ⋈ `ehr.updates` on `patient_id` within a tens-of-minutes
+event-time predicate, with windowed aggregation downstream. Two Spark
+Structured Streaming constraints combined badly: stream-stream joins
+require `outputMode("append")`, and an append-mode join emits only
+once the watermark passes the lower bound of the join window. With
+our 30-second watermark and 30-second sliding window, end-to-end alert
+latency exceeded one minute. Worse, the query failed to start in
+`outputMode("update")` with the join present — Spark forbids that
+combination (`AnalysisException: stream-stream join is not supported
+in Update output mode`). For a clinician, an alert that arrives a
+minute after the underlying signal can't be acted on for that window.
+
+**What we tried.**
+
+- *Approach 1 — `update` mode with the join.* Rejected at start-up
+  by Spark.
+- *Approach 2 — widen the watermark to 10 minutes.* The join
+  matures, but the downstream aggregation waits 10 minutes too. A
+  10-minute alert isn't an alert.
+- *Approach 3 — continuous trigger.* Sub-second latency, but
+  continuous trigger supports only `map`, `filter`, `select`.
+  Neither the windowed aggregation nor the join fits.
+- *Approach 4 — Lambda escape hatch: move the join to the batch
+  path.* The join is unconstrained on the batch side; the speed
+  layer loses the EHR-derived terms of the score but stays fast.
+  Trade-off: the live anomaly score uses two of the four weighted
+  terms, with the full EHR-enriched score recomputed on the batch
+  path.
+
+**What we shipped.**
+The deployed code path is `build_kafka_streaming_pipeline` in
+`src/brainwatch/processing/speed_layer.py`. It subscribes to
+`eeg.raw` with `maxOffsetsPerTrigger=5000`, parses with `from_json`
+against an explicit `StructType`, applies
+`withWatermark("event_time", "30 seconds")`, aggregates per
+`(patient_id, window(event_time, "30 seconds", "15 seconds"))`, runs
+the windowed feature row through a Python UDF (`_score`) that returns
+a 0–1 anomaly score, and writes via `foreachBatch` into Cassandra
+with `outputMode("append")` + `trigger(processingTime="5 seconds")`.
+A second subscription to `ehr.updates` sinks to `noop` so consumer
+offsets advance and lag metrics stay meaningful. The canonical
+stream-stream join variant is kept in the same file as
+`build_streaming_pipeline` for documentation. Measured outcome: the
+speed layer writes 60–100 alerts per micro-batch into Cassandra at a
+sustained 333 events/s per topic; cumulative reaches 100,000 alerts
+at cohort scale; end-to-end p50 alert visibility ≈ 12 s.
+
+**Takeaway in one sentence.**
+*Exactly-once visibility is three properties together — a replayable
+source (Kafka offsets in the Spark checkpoint), an idempotent sink
+(Cassandra PK `(patient_id, alert_time)` makes a replayed insert a
+no-op upsert), and checkpointed state (the Spark state store on
+`checkpoints-pvc`).* When a streaming join becomes a latency hazard,
+push the join to the batch path — that's exactly why Lambda has two
+paths.
+
+**Where to look in the repo.**
+
+- Deployed speed layer →
+  `src/brainwatch/processing/speed_layer.py::build_kafka_streaming_pipeline`
+- Stream-stream join design variant (kept for documentation) →
+  `src/brainwatch/processing/speed_layer.py::build_streaming_pipeline`
+- Empirical pod-delete check → `scripts/verify_exactly_once.sh`
+- Cassandra schema with PK that absorbs replays →
+  `src/brainwatch/serving/cassandra_sink.py`
+
+---
+
+### Lesson 4 — Data Storage
+
+**Problem (what hurt us).**
+The rubric demands "HDFS or equivalent." Hadoop's S3A connector is a
+first-class `FileSystem` implementation; modern Lakehouse deployments
+sit on object storage. Three constraints pulled in different
+directions: the paused-cost budget is under \$1/month (rules out
+keeping EBS PVCs alive), the dashboard must stay reachable while the
+cluster is torn down (rules out HDFS-only), and the deployed topology
+must carry the literal word "HDFS" (discourages S3-only). The wrong
+call in either direction would either 10× the monthly storage cost or
+remove a required rubric component from the topology.
+
+**What we tried.**
+
+- *Approach 1 — S3 only.* Simplest operationally; eleven nines of
+  durability from S3 itself. But "HDFS" appears nowhere in the
+  topology, which sits poorly with a course whose Chapter 3 is HDFS.
+- *Approach 2 — HDFS only.* Most literal rubric reading. The
+  dashboard JSON would have to live on HDFS, tying it to a running
+  cluster and inflating monthly paused cost from ~\$1 to ~\$40 in
+  EBS provisioning.
+- *Approach 3 — Hybrid: HDFS for compute, S3 for serving + raw
+  archive.* Two storage systems to operate, three extra manifests
+  (NameNode StatefulSet, DataNode StatefulSet, `hdfs-env`
+  ConfigMap), but each side does what it's best at.
+
+**What we shipped.**
+HDFS via `infra/cloud/k8s-overlays/hdfs.yaml`: one NameNode on a 5
+GiB EBS volume, two DataNodes on 20 GiB EBS volumes each, RF=2, 64
+MiB block, 40 GiB total capacity. Bronze, silver, gold, and the
+speed-layer checkpoints all live on HDFS. The 17.05 GiB raw EDF
+archive lives at
+`s3://brainwatch-capstone-923884399064/raw_edf/`; the dashboard
+payload at `s3://brainwatch-dashboard-923884399064/`. The bronze
+streamer (`scripts/bronze_stream_from_s3.py`) caps its archive at
+`ARCHIVE_RAW_CAP_GIB=4` so the RF=2 footprint stays under 50% of the
+40 GiB cluster capacity. Measured outcome: HDFS held 9.4 GiB at peak
+across replicas; bronze grew from 22 MiB to 3.4 GiB as the streamer
+worked the cohort; silver and gold rebuilt to 0.87 MiB and 16.9 KiB
+respectively per CronJob fire. The dashboard kept rendering across
+two teardown-resume cycles because S3 served the JSON without
+needing the cluster.
+
+**Takeaway in one sentence.**
+*Compute is ephemeral; data is durable.* Where the consumer of a
+piece of data does not need it co-located with compute, S3 is the
+right home; where Spark wants data locality, HDFS is.
+
+**Where to look in the repo.**
+
+- HDFS manifest (NameNode + 2 DataNodes, RF=2) →
+  `infra/cloud/k8s-overlays/hdfs.yaml`
+- Bronze streamer with archive cap →
+  `scripts/bronze_stream_from_s3.py` (`ARCHIVE_RAW_CAP_GIB`)
+- Bronze-streamer Deployment manifest →
+  `infra/cloud/k8s-overlays/bronze-streamer.yaml`
+- S3 bucket reference in the cluster-state exporter →
+  `scripts/cluster_state_to_s3.py`
+
+---
+
+### Lesson 5 — System Integration
+
+**Problem (what hurt us).**
+The deployment is ten YAML files in `infra/cloud/k8s-overlays/` with
+inter-component dependencies that must hold at bring-up: HDFS
+NameNode must be reachable before the bronze-loader CronJob fires;
+Cassandra must be reachable before the schema-init Job runs; Kafka
+must accept traffic before the producer pod sends; the cluster-state
+exporter needs its ServiceAccount/RoleBindings applied before its
+first `kubectl` call. Early bring-up exhibited a particularly painful
+race: the loader CronJob fired before HDFS was reachable and silently
+wrote to its own container's filesystem, then exited with success.
+The CronJob log showed the `-put` command running;
+`hdfs dfs -ls /lake/bronze` returned an empty listing; nothing on the
+dashboard suggested anything was wrong. The next spark-batch fire
+then read empty bronze and wrote empty silver — an end-to-end-working
+pipeline producing no content.
+
+**What we tried.**
+
+- *Approach 1 — Helm with `post-install` hooks.* Helm has the
+  mechanism but adds a templating layer that exceeds the value for a
+  ten-file deployment.
+- *Approach 2 — Argo Workflows as the apply DAG.* Explicit
+  dependencies, but Argo itself has stateful components that must be
+  brought up first. Chicken-and-egg costs are high.
+- *Approach 3 — Bash apply plus `kubectl wait`, plus a self-wait
+  `until` loop at the top of every CronJob.*
+
+**What we shipped.**
+`infra/cloud/resume_from_snapshots.sh` applies manifests in six
+stages: cluster provision + auth, EBS CSI driver, PVs pre-bound from
+snapshots, PVCs, AWS credentials Secret, then the namespaced
+workloads in dependency order (Cassandra → Kafka → Grafana →
+real-pipeline → HDFS overlay → batch overlay). Each CronJob's command
+opens with:
+
+```bash
+HDFS="/opt/hadoop-3.2.1/bin/hdfs dfs -fs $HDFS_NN"
+until $HDFS -ls / >/dev/null 2>&1; do
+  echo "waiting for HDFS RPC..."; sleep 5
+done
+```
+
+The streamer and the cluster-state exporter both run init containers
+that pull the project wheel + scripts from S3 so the main container
+doesn't need a custom image. And after the loader's `-put` step, the
+`hdfs-bronze-loader` CronJob in
+`infra/cloud/k8s-overlays/batch-on-hdfs.yaml` tracks which streams
+had source data and asserts they all resolved to non-empty paths on
+HDFS — fails loud if not (this catches the silent-success failure
+mode where `hdfs dfs` falls back to the local FS). End-to-end resume
+time ≈ 20 minutes.
+
+**Takeaway in one sentence.**
+*A pre-flight `until` loop is cheaper than a restart policy, and
+every component whose output is invisible on the dashboard needs a
+sanity check that fails the Job loudly when the output isn't where
+it should be.*
+
+**Where to look in the repo.**
+
+- Bring-up script → `infra/cloud/resume_from_snapshots.sh`
+- Self-wait loop on every CronJob →
+  `infra/cloud/k8s-overlays/batch-on-hdfs.yaml`
+  (`hdfs-bronze-loader` `until` block)
+- Post-`-put` non-empty assertion → same file, `EXPECTED_STREAMS`
+  + `$HDFS -test -d` + `$HDFS -ls` block
+- Manifest validation pre-apply → `kubeconform -strict` in the
+  deploy scripts
+
+---
+
+### Lesson 6 — Performance Optimization
+
+**Problem (what hurt us).**
+The spark-batch CronJob fires every five minutes against the live
+HDFS bronze. Two successive runs on slightly different bronze sizes
+both took ~50 s and ~51 s — the runtime is nearly independent of
+input size, which is a clean signal that *fixed overhead dominates*.
+The temptation was to attack the runtime directly (Pandas UDF
+rewrite, Scala port).
+
+**What we tried.**
+
+- *Approach 1 — Pandas UDF for `_score`.* Save the per-row pickle
+  cost. But the UDF is small and the dominant cost is outside Python.
+- *Approach 2 — Port the speed layer to Scala.* Removes the Python
+  interpreter, but doubles the language surface area for a
+  five-person team.
+- *Approach 3 — Pre-aggregate inside the streamer.* Shift work out
+  of the batch path. But the watermark + late-data handling provided
+  natively by Structured Streaming would have to be reimplemented.
+- *Approach 4 — Leave the batch alone; tune the speed layer
+  instead.* Put optimisation effort where the user notices it.
+
+**What we shipped.**
+Four specific speed-layer optimisations in
+`src/brainwatch/processing/speed_layer.py`:
+
+- `maxOffsetsPerTrigger=5000` — caps cold-start batch size so the
+  first micro-batch after a restart doesn't starve executors.
+- `spark.sql.shuffle.partitions=8` — keeps shuffle partitions
+  proportional to micro-batch size; the default of 200 produces
+  empty shuffles at our volume.
+- `spark.sql.adaptive.enabled=true` — lets AQE collapse small
+  partitions in the windowed-aggregation stage.
+- `zlib.crc32` in the UDF (not Python's `hash()`) — Python's
+  built-in `hash()` is salted per-process via `PYTHONHASHSEED`,
+  which would yield non-reproducible scores across executors and
+  across pod restarts.
+
+Measured outcome: speed layer sustains 60–100 alerts per micro-batch
+at p50 visibility ≈ 12 s.
+
+**Takeaway in one sentence.**
+*A fixed overhead dominates a small workload* — `spark-submit
+--packages` alone takes 20–30 s and JVM startup adds 5–10 s, so
+optimising the work inside the job is worthless until you account
+for the fixed overhead. *Optimise the workload the user sees.*
+
+**Where to look in the repo.**
+
+- Speed-layer optimisations (all four) →
+  `src/brainwatch/processing/speed_layer.py::build_kafka_streaming_pipeline`
+- Spark batch overhead breakdown (~80% startup + packages on every
+  fire) → `Empirical.tex` §4 (Spark batch fixed-overhead model) in
+  the Overleaf report
+- `zlib.crc32` deterministic-variance trick → the `_score` function
+  in `speed_layer.py`
+
+---
+
+### Lesson 7 — Monitoring & Debugging
+
+**Problem (what hurt us).**
+The deployed system has twelve pods at steady state across two EKS
+worker nodes. "Is the pipeline alive?" was a question that required
+three or four `kubectl` commands to answer. The dashboards that
+shipped first only answered "how many alerts has Cassandra absorbed?"
+— silent on whether the streamer was producing, whether HDFS was
+healthy, whether the CronJobs had fired on schedule, or whether the
+under-replicated block count was sane. An operator who needs three
+commands to confirm health will not run them as often as needed;
+some failure classes go undetected for hours.
+
+**What we tried.**
+
+- *Approach 1 — Prometheus + the Kubernetes state-metrics
+  exporter.* The right answer at scale, but two additional stateful
+  services plus a non-trivial amount of YAML for a capstone.
+- *Approach 2 — Hosted SaaS (Datadog or similar).* Shifts cost to a
+  third party; introduces an external dependency on someone else's
+  reliability for our internal view.
+- *Approach 3 — Custom polling pod that writes JSON to S3.* Not as
+  rich as Prometheus, but Grafana already reads JSON via the
+  Infinity datasource, so the integration is zero-effort. Polling
+  cadence sets a floor on freshness.
+
+**What we shipped.**
+`scripts/cluster_state_to_s3.py` runs as a Python pod with an
+in-cluster ServiceAccount granted `get/list` on pods, deployments,
+statefulsets, jobs, and cronjobs in the namespace and on nodes
+cluster-wide. Every 30 seconds it gathers three signals:
+
+- `kubectl get {pods,nodes,cronjobs,jobs}` → pod inventory by app,
+  node readiness, CronJob fire times.
+- `kubectl -n brainwatch exec sts/hdfs-namenode -- hdfs dfsadmin
+  -report` → HDFS health, used capacity, under-replicated block
+  count.
+- `kubectl -n brainwatch exec sts/cassandra -- cqlsh -e "SELECT
+  COUNT(*) ..."` → live alert count from Cassandra.
+
+Then writes seven flat JSON files to S3, each consumed by a
+panel in the Architecture Status Grafana dashboard:
+`cluster_summary.json`, `cluster_pods.json`, `cluster_nodes.json`,
+`cluster_cronjobs.json`, `cluster_hdfs.json`,
+`cluster_hdfs_lake.json`, `pipeline_metrics.json`. Under 200 lines
+of Python + one Deployment manifest; refresh ≈ 30 s.
+
+**Takeaway in one sentence.**
+*Write flat JSON, not nested* — the first exporter version wrote one
+nested `cluster_state.json` and pointed Grafana's Infinity panels at
+dotted paths; every stat panel showed "No data" until the file was
+split. Surface failure as a visible number on the dashboard; if the
+answer is on the dashboard, nobody gets paged.
+
+**Where to look in the repo.**
+
+- The exporter pod → `scripts/cluster_state_to_s3.py`
+- Its Deployment + ServiceAccount/RoleBinding →
+  `infra/cloud/k8s-overlays/cluster-state-exporter.yaml`
+- Architecture Status Grafana dashboard JSON →
+  `infra/cloud/grafana-architecture-status-dashboard.json`
+- The seven flat JSON files in S3 →
+  `s3://brainwatch-dashboard-923884399064/cluster/`
+
+---
+
+### Lesson 8 — Scaling
+
+**Problem (what hurt us).**
+The cohort is bounded (1,571 EDFs in S3), but the streamer's local
+cadence is configurable. The demo requires roughly half the cohort
+pre-loaded into bronze quickly, then a slower cadence so the rest
+arrives visibly during the presentation. A single streamer pod with
+`SLEEP_BETWEEN_EDF=2` saturated the pod's CPU on the MNE parse and
+saturated the Kafka producer on JSON serialisation, each
+independently. Throughput plateaued at ~0.5 EDFs/s despite the work
+being embarrassingly parallel across files. Pre-load took 13 minutes
+instead of the ~6 that two cooperating workers would have taken.
+
+**What we tried.**
+
+- *Approach 1 — horizontal replication of the streamer pod.* Two
+  pods double throughput in principle, but the streamer holds
+  progress state in `/data/lake/_state/bronze_streamer.json` —
+  two writers on the same file would race. Per-pod state files
+  keyed by partition, or an external coordinator, would be needed.
+- *Approach 2 — vertical scaling.* Bump pod CPU/memory limits. The
+  node size cap is 4 vCPUs on t3.xlarge; already near the ceiling.
+- *Approach 3 — Pandas UDF for the MNE parse.* Amortise the Python
+  interpreter trip. But MNE is per-file, not vectorisable across
+  files.
+- *Approach 4 — time-box the burst.* Tune `SLEEP_BETWEEN_EDF` so a
+  single streamer reaches the 50% mark inside the demo budget. A
+  slightly slower pre-load in exchange for zero architectural
+  change.
+
+**What we shipped.**
+For the demo: `SLEEP_BETWEEN_EDF=2` during the burst, wait until the
+state file records ≥50% of the cohort, trigger the loader + batch
+CronJobs manually, then reset to `SLEEP_BETWEEN_EDF=20`. The full
+code path is unchanged across the two cadences; only the environment
+variable differs. Measured outcome: at burst sleep, 789 EDFs in 13
+minutes (~1.0 EDF/s, limited by S3 download + MNE parse); at demo
+sleep, ~0.05 EDFs/s — the rate at which the dashboard's bronze size
+visibly grows between refreshes.
+
+**Takeaway in one sentence.**
+*Scale only the bottleneck.* The streamer was the bottleneck for the
+burst load; the speed layer was the bottleneck for steady-state
+alert volume; horizontally scaling the batch driver would have
+wasted compute without moving any user-visible number. Per-partition
+state is the prerequisite for ever replicating the streamer.
+
+**Where to look in the repo.**
+
+- Streamer with configurable cadence → `scripts/bronze_stream_from_s3.py`
+  (`SLEEP_BETWEEN_EDF` env var)
+- Streamer Deployment manifest →
+  `infra/cloud/k8s-overlays/bronze-streamer.yaml`
+- Progress state file path → `/data/lake/_state/bronze_streamer.json`
+  on the bronze PVC
+- Single-writer guarantee → the Deployment uses
+  `strategy: {type: Recreate}` so two replicas can never coexist on
+  the same PVC
+
+---
+
+### Lesson 9 — Data Quality & Testing
+
+**Problem (what hurt us).**
+The project carries 110+ pytest cases (all passing) plus
+`kubeconform` validation of every Kubernetes manifest. The discipline
+catches a substantial class of regressions before they reach the
+cluster. Two integration bugs slipped past it because they lived at
+the boundary between Python and Spark:
+
+1. `silver_layer._read_bronze` used `os.walk` to sniff bronze
+   format. `os.walk` does *not* work against `hdfs://` URIs, so the
+   function silently fell back to the Parquet reader, which crashed
+   on the JSONL payload with `CANNOT_READ_FILE_FOOTER`.
+2. The bronze loader copied the streamer's nested directory verbatim
+   into HDFS, producing `/lake/bronze/bronze_real/eeg/` where silver
+   reads from `/lake/bronze/eeg/`.
+
+The first surfaced as a hard crash and was fixed within an hour.
+The second was silent: silver and gold stayed at the initial-cohort
+values for several CronJob fires before the dashboard's lake-zone
+bar gauge made the absence visible.
+
+**What we tried.**
+
+- *Approach 1 — full end-to-end integration test in CI.* A Docker
+  Compose stack with HDFS, Kafka, Cassandra, and a synthetic EDF
+  stream, exercised by every PR. Build time ~2 days + CI time
+  10–15 min per PR; outside the capstone budget.
+- *Approach 2 — plan-inspection tests.* Assert that a specific
+  Spark operator appears in the executed plan; brittle across Spark
+  version renames; value is a class of regression that
+  output-correctness tests miss.
+- *Approach 3 — dashboard-as-test.* Surface every integration
+  contract as a visible number on the dashboard, so a zero or stale
+  value is louder than a log line that scrolls past. Per-contract
+  panel work, paid once.
+
+**What we shipped.**
+Unit-test discipline holds (110+ functions, all passing).
+Plan-inspection test for the broadcast hint lives in
+`tests/test_gold_layer.py::test_patient_dim_join_uses_broadcast`.
+`kubeconform -strict` validates every overlay before `kubectl apply`
+and caught two malformed selectors during the hybrid roll-out. The
+two latent bugs were fixed at root: `_read_bronze` now uses the
+Hadoop `FileSystem` via Spark's JVM gateway to list non-local URIs,
+and the bronze loader's promote loop maps streamer paths into the
+canonical bronze paths (the `for stream in eeg edf` block in
+`infra/cloud/k8s-overlays/batch-on-hdfs.yaml`). Measured outcome:
+after the fix, silver grew from 0.49 MiB to 0.87 MiB on the next
+CronJob fire, confirming silver was reading the streamer's new
+bronze.
+
+**Takeaway in one sentence.**
+*Tests and observability do not substitute for each other — each
+catches a different class of regression.* Plan inspection is its own
+test category; add a dashboard-as-test counter for every integration
+contract whose violation would otherwise be silent.
+
+**Where to look in the repo.**
+
+- All 24 test files (110+ functions) → `tests/`
+- Plan-inspection test for broadcast →
+  `tests/test_gold_layer.py::test_patient_dim_join_uses_broadcast`
+- `_read_bronze` Hadoop-FileSystem fix →
+  `src/brainwatch/processing/silver_layer.py`
+- Bronze-loader promote loop →
+  `infra/cloud/k8s-overlays/batch-on-hdfs.yaml`
+  (`hdfs-bronze-loader` CronJob, `for stream in eeg edf` block)
+
+---
+
+### Lesson 10 — Security & Governance
+
+**Problem (what hurt us).**
+The capstone is not a production medical platform; HIPAA-grade
+controls are out of scope. But the team handles three sensitive
+items: an AWS root access key, a GitHub personal access token, and
+a BDSP credentialed-access key for the EEG corpus. A leaked AWS key
+can cost thousands of US dollars before billing alerts fire; a
+leaked BDSP key violates the data-use agreement; a leaked GitHub
+token pollutes the repository's trust boundary. Three different leak
+surfaces share one root cause: secrets touching developer machines
+without discipline.
+
+**What we tried.**
+
+- *Approach 1 — AWS IAM Roles for Service Accounts (IRSA).* Pods
+  assume short-lived roles via an OIDC trust policy bound to the
+  ServiceAccount; no long-lived key on disk. OIDC provider setup +
+  trust policy per role + moderate learning curve.
+- *Approach 2 — HashiCorp Vault.* Per-secret leasing and audit;
+  stateful service that must itself be brought up reliably;
+  chicken-and-egg cost too high for the capstone.
+- *Approach 3 — Single Kubernetes Secret per logical credential.*
+  Pragmatic for the capstone, inadequate for production. No
+  automatic rotation, no per-pod credential scoping.
+
+**What we shipped.**
+The AWS root key is loaded once at apply time into the
+`aws-credentials` Secret in the `brainwatch` namespace; pods
+reference it through `secretKeyRef`, so values are not baked into
+manifests. The BDSP key file `rootkey.csv` lives in a directory that
+is the *parent* of the repository working tree, so it cannot be
+tracked by the repository's `.git` regardless of staging mistakes.
+Data flows only to the project S3 bucket
+`s3://brainwatch-capstone-923884399064/raw_edf/`; EDFs are not
+redistributed beyond the team. A repository-wide audit at the time
+of writing returned the empty set for any file ever added under
+`credentials/` or matching `rootkey.csv`; the four
+`AKIA[A-Z0-9]{16}` matches across the full history are all the
+AWS-documented example key `AKIAIOSFODNN7EXAMPLE` used in a single
+test fixture. No real credential has been committed.
+
+**Takeaway in one sentence.**
+*A small set of well-scoped secrets is the realistic ceiling for a
+student project* — IRSA, KMS-encrypted PVCs, CloudTrail with
+seven-year retention, PHI tokenisation, and a Business Associate
+Agreement are the production additions described in the Vision
+chapter. A `git log -p` audit before publishing is a five-second
+discipline that prevents the most embarrassing public-repository
+incident.
+
+**Where to look in the repo.**
+
+- `aws-credentials` Secret reference →
+  `infra/cloud/k8s-overlays/real-pipeline.yaml` (`secretKeyRef`
+  blocks)
+- BDSP key path (deliberately outside the repo) →
+  `../credentials/rootkey.csv` (parent of the repo working tree)
+- `.gitignore` entries that enforce the credential boundary →
+  `.gitignore`
+- The git-log audit commands (run before publishing) →
+  `docs/RUBRIC-COVERAGE.md` and the report's Reflections L10
+
+---
+
+### Lesson 11 — Fault Tolerance
+
+**Problem (what hurt us).**
+The failure modes that matter for the capstone are: an EKS worker
+node terminating mid-batch, the NameNode pod restarting under
+memory pressure, Cassandra losing its EBS volume, Kafka losing its
+EBS volume, and the entire cluster being torn down between demos.
+The most disruptive is the pause-resume cycle: a clean
+`eksctl delete cluster` returns the EBS volumes to the detached
+state, and the EBS snapshots taken at pause time are the only
+durable representation of the cluster state. A pause that loses data
+would make the demo non-repeatable; a pod restart that loses
+checkpoint state would force the speed layer to reprocess from the
+topic start with duplicate alerts that the Cassandra primary key
+may or may not absorb.
+
+**What we tried.**
+
+- *Approach 1 — HDFS HA with QJM.* Two NameNodes + three
+  JournalNodes + ZooKeeper for automatic failover. The correct
+  production answer; five additional pods of operational surface.
+- *Approach 2 — Cassandra RF=3 across three availability zones.*
+  Standard production posture; two extra pods + repair/compaction
+  tuning.
+- *Approach 3 — Kafka with three brokers + in-sync-replica
+  enforcement.* Standard production posture; two extra pods +
+  broker-id management + leader election under partial failure.
+- *Approach 4 — Accept single points of failure; rely on PVC
+  reattachment + snapshot-based pause-resume.* Pragmatic, within
+  budget. An EKS worker terminating mid-batch requires manual
+  investigation.
+
+**What we shipped.**
+Single-instance NameNode, single-instance Cassandra (`RF=1`,
+`SimpleStrategy`), single-instance Kafka (KRaft mode). Every
+stateful pod has an EBS-backed PVC; the StatefulSet pattern
+reattaches a restarted pod to its prior volume by name. The
+speed-layer Spark Structured Streaming pipeline checkpoints to
+`/data/checkpoints/kafka_speed_layer` on `checkpoints-pvc`. The
+pause-resume cycle is script-driven: pause produces 8 EBS snapshots
+catalogued in `artifacts/eks/snapshots/index.txt`; resume runs
+`infra/cloud/resume_from_snapshots.sh`. The pod-delete protocol in
+`scripts/verify_exactly_once.sh` exercises the same recovery path
+on the speed layer (snapshot Cassandra alert count, force-delete the
+speed-layer pod mid-batch, wait for the Deployment to recreate it,
+assert no row regression after two micro-batches). End-to-end
+cluster resume time from `eksctl create cluster` to "all pods
+Running" is approximately 20 minutes.
+
+**Takeaway in one sentence.**
+*A capstone's fault-tolerance posture is what its pause-resume cycle
+survives* — if the system can be torn down and brought back from
+snapshots in under 30 minutes with no data loss, the same machinery
+covers the routine pod-restart case at no extra cost. Design the
+serving-store primary key so a replayed insert is a no-op upsert.
+
+**Where to look in the repo.**
+
+- StatefulSets that reattach by name → `infra/cloud/k8s-overlays/hdfs.yaml`,
+  `infra/k8s/cassandra-statefulset.yaml`,
+  `infra/cloud/k8s-overlays/kafka-kraft.yaml`
+- Speed-layer checkpoint location →
+  `src/brainwatch/processing/speed_layer.py` (`checkpointLocation`
+  option in the `writeStream`)
+- Pause-resume script → `infra/cloud/resume_from_snapshots.sh`
+- EBS snapshot inventory (8 snapshots, PVC → volume → snapshot id)
+  → `artifacts/eks/snapshots/index.txt`
+- Pod-delete exactly-once test → `scripts/verify_exactly_once.sh`
 
 ---
 
