@@ -6,6 +6,11 @@
 This is the *one* file you read first. Every other doc in `docs/` is referenced
 from here in the order you should open it.
 
+> 📋 **Rubric coverage map:** `docs/RUBRIC-COVERAGE.md` — every
+> IT4043E requirement (5 mandatory components, 20 Spark sub-items, 11
+> lesson categories, 4 report sections) mapped to the file, test, and
+> report section that satisfies it.
+
 > ⏱ Budget: ~6 hours to read everything below + skim the linked code.
 > If you only have 90 minutes before a defense, jump to §11 (Demo Runbook) and
 > §12 (Defense Q&A) — they're self-contained.
@@ -23,7 +28,7 @@ from here in the order you should open it.
 7. [Running it locally (the 30-minute path)](#7-running-locally)
 8. [Running it on Kubernetes — local cluster](#8-running-on-k8s-local)
 9. [Running it on AWS EKS — cloud, real data](#9-running-on-eks)
-10. [The test suite (131 tests)](#10-tests)
+10. [The test suite (110+ tests)](#10-tests)
 11. [Demo runbook for the defense](#11-demo-runbook)
 12. [Defense Q&A — the questions you *will* be asked](#12-defense-qa)
 13. [Cost, teardown, and resume from snapshots](#13-cost-teardown-resume)

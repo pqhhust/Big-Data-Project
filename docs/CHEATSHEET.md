@@ -119,27 +119,89 @@ Row 4 (y=21): Live alert ingestion rate (timeseries)
 
 ### Rubric compliance ✅
 
-| Rubric | Our answer |
+5 mandatory components — all in production:
+
+| Rubric component | Our answer |
 |---|---|
 | Data processing | **Apache Spark 3.5** (batch + Structured Streaming + MLlib) |
-| Distributed storage | **HDFS** (NameNode + 2 DataNodes, `bde2020/hadoop:3.2.1`) **+ S3** for serving |
+| Distributed storage | **HDFS** (NameNode + 2 DataNodes, RF=2, `bde2020/hadoop:3.2.1`) **+ S3** for serving |
 | Message queue | **Apache Kafka 3.9 KRaft** (no ZooKeeper) |
-| Database | **Cassandra 4.1** (wide-column NoSQL) |
-| Deployment | **AWS EKS** (Kubernetes + Cloud) |
+| Database (NoSQL) | **Cassandra 4.1** (wide-column) |
+| Deployment | **AWS EKS** (managed Kubernetes on managed cloud) |
 
-### Spark depth they will grade you on
+11 lesson categories — all in `Reflections.tex` using the four-part
+rubric structure (Problem → Approaches → Final Solution → Key
+Takeaways):
 
-| Technique | Where | One line |
-|---|---|---|
-| Window functions | `silver_layer.build_ehr_silver` | `row_number().over(...orderBy(version desc))` — latest EHR |
-| Broadcast join | `gold_layer.build_patient_features` | `F.broadcast(patient_dim)` avoids shuffle |
-| Sort-merge join | `gold_layer` | large EEG⋈EHR on `patient_id` ± 30 min |
-| Structured Streaming | `speed_layer.build_kafka_streaming_pipeline` | `readStream.format("kafka")`, append mode |
-| Watermark / late data | same | `withWatermark("event_time","30 seconds")` |
-| Windowed aggregation | same | `F.window(event_time,"30s","15s")` |
-| UDF | same | `compute_anomaly_score` → 0–1 |
-| Partition pruning | silver write | `partitionBy("site_id","ingestion_date")` |
-| MLlib | `train_severity_model.py` | LogisticRegression + AUC |
+| # | Lesson | # | Lesson |
+|---|---|---|---|
+| 1 | Data Ingestion | 7 | Monitoring & Debugging |
+| 2 | Data Processing with Spark | 8 | Scaling |
+| 3 | Stream Processing | 9 | Data Quality & Testing |
+| 4 | Data Storage | 10 | Security & Governance |
+| 5 | System Integration | 11 | Fault Tolerance |
+| 6 | Performance Optimization | | |
+
+Full requirement → artefact map in `docs/RUBRIC-COVERAGE.md` (also
+mirrored in the report as `Requirements.tex` and Appendix 2).
+
+### Spark depth — all 20 sub-items they will grade you on
+
+20 sub-items across 6 categories. **18 are realised in production
+code paths or scripts; 2 are out of scope with a stated reason.**
+
+**1. Complex aggregations (4/4)**
+
+| Sub-item | Where |
+|---|---|
+| Window functions | `silver_layer.build_ehr_silver` — `row_number().over(partitionBy(patient_id, encounter_id).orderBy("version desc"))` |
+| Advanced aggregation functions | `gold_layer.build_patient_features` — `F.count`, `F.avg`, `F.max`, `F.first`, `F.collect_set` |
+| Pivot / unpivot | `scripts/spark_advanced_demo.py::build_severity_pivot` — alerts pivoted to (site, date) × severity |
+| Custom aggregation (UDAF) | `scripts/spark_advanced_demo.py::build_quality_histogram` — grouped-agg `pandas_udf` for per-patient signal-quality histogram |
+
+**2. Advanced transformations (3/3)**
+
+| Sub-item | Where |
+|---|---|
+| Multi-stage transformations | bronze → silver → gold pipeline; `run_batch.py` chains four Spark functions |
+| Chaining complex operations | `gold_layer.build_patient_features` — broadcast join + sort-merge join + groupBy + multi-column agg + partitioned write |
+| Custom UDFs | `speed_layer._score` — windowed feature row → 0–1 anomaly score |
+
+**3. Join operations (3/3)**
+
+| Sub-item | Where |
+|---|---|
+| Broadcast join (small dim) | `F.broadcast(patient_dim)` in `gold_layer`; pinned by `tests/test_gold_layer.py::test_patient_dim_join_uses_broadcast` |
+| Sort-merge join (large fact) | silver EEG ⋈ silver EHR on `patient_id` within ±30-min predicate in `gold_layer.build_patient_features` |
+| Multi-join optimisation | broadcast hint + AQE + `spark.sql.shuffle.partitions` → single shuffle stage in the post-AQE plan |
+
+**4. Performance optimisation (3/4 + 1 out of scope)**
+
+| Sub-item | Where |
+|---|---|
+| Partition pruning | silver writes `partitionBy("site_id", "ingestion_date")` |
+| Caching / persistence | `scripts/spark_advanced_demo.py::demonstrate_caching` calls `df.cache()` and prints the post-cache `explain(mode="formatted")` |
+| Query optimisation / `explain` | `spark.sql.adaptive.enabled=true` on every job; broadcast hint pinned at the call site; plan inspected in regression test |
+| Bucketing | **Out of scope** — requires `saveAsTable` against a Hive metastore; partitioned-Parquet layout already gives per-site pruning |
+
+**5. Stream processing (6/6)**
+
+| Sub-item | Where |
+|---|---|
+| Structured Streaming | `speed_layer.build_kafka_streaming_pipeline` — Kafka source, append mode |
+| Output modes | production: `outputMode("append")`. design variant `build_streaming_pipeline` retains `outputMode("update")` |
+| Watermarking | `withWatermark("event_time", "30 seconds")` on the EEG stream |
+| Late data handling | records past the watermark dropped (append-mode); DLQ catches malformed records before the stream |
+| State management | windowed aggregation state on `checkpoints-pvc`; speed layer survives pod restart via checkpoint replay |
+| Exactly-once guarantees | replayable Kafka source + idempotent Cassandra PK + checkpointed state. Empirical check: `scripts/verify_exactly_once.sh` |
+
+**6. Advanced analytics (2/3 + 1 out of scope)**
+
+| Sub-item | Where |
+|---|---|
+| Machine learning (MLlib) | `scripts/train_severity_model.py` — `LogisticRegression` over `VectorAssembler` of gold features; reports AUC on a held-out split |
+| Graph processing (GraphFrames) | **Out of scope** — the domain has no natural graph relation; relevant relations are temporal (window) and dimensional (broadcast) |
+| Statistical / time series | `speed_layer` windowed time-series agg; analytics scripts compute diurnal patterns and per-site severity time series |
 
 ### Anomaly score (know by heart)
 
