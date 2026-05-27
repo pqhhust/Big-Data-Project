@@ -60,6 +60,63 @@ def build_patient_features(spark: Any, silver_path: str, gold_path: str) -> None
     )
 
 
+def materialize_patient_enrichment(spark: Any, gold_path: str,
+                                    cassandra_contact_point: str) -> int:
+    """Push per-patient EHR-derived enrichment from gold into
+    ``brainwatch.patient_state`` so the speed layer can read it in
+    ``foreachBatch``.
+
+    Reads ``gold/patient_features`` and for every patient takes the
+    latest day's row (max ``event_date``), then upserts
+    ``(has_critical_lab, n_medication_changes_24h)`` into
+    ``patient_state``. The speed-layer ``_write_batch`` then computes
+    the v2 four-term anomaly score against this enrichment instead of
+    a CRC32 placeholder. This is the canonical Lambda pattern: the
+    batch path produces a serving-store dimension, the speed path
+    reads it.
+
+    Returns the number of patients upserted.
+    """
+    from pyspark.sql import functions as F
+    from pyspark.sql.window import Window
+    from brainwatch.serving.cassandra_sink import (
+        get_session, init_keyspace, upsert_patient_enrichment,
+    )
+
+    pf = spark.read.parquet(f"{gold_path}/patient_features")
+    # For each patient take the latest event_date row. Collect a small
+    # dataframe to the driver — one row per patient, bounded by cohort
+    # size (~hundreds in our setting, not millions).
+    w = Window.partitionBy("patient_id").orderBy(F.col("event_date").desc())
+    latest = (pf.withColumn("_r", F.row_number().over(w))
+                .where(F.col("_r") == 1)
+                .select(
+                    "patient_id",
+                    F.col("has_critical_lab_today").alias("has_critical_lab"),
+                    F.col("n_medication_changes").alias("n_medication_changes_24h"),
+                ))
+    rows = latest.collect()
+
+    session = get_session([cassandra_contact_point])
+    try:
+        init_keyspace(session)
+        n = 0
+        for row in rows:
+            upsert_patient_enrichment(
+                session,
+                patient_id=row["patient_id"],
+                has_critical_lab=bool(row["has_critical_lab"]),
+                n_medication_changes_24h=int(row["n_medication_changes_24h"] or 0),
+            )
+            n += 1
+    finally:
+        try:
+            session.shutdown()
+        except Exception:
+            pass
+    return n
+
+
 def build_alert_summary(spark: Any, gold_path: str,
                         alerts_export_path: str | None = None) -> None:
     """Daily alert counts by severity.

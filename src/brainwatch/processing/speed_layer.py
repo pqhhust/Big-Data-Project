@@ -165,6 +165,10 @@ def build_kafka_streaming_pipeline(
                   .option("checkpointLocation", f"{checkpoint_path}/ehr_subscriber")
                   .start())  # keeps a live consumer on the topic for metrics
 
+    # Windowed feature aggregation. We compute the EEG-only feature row
+    # here; the EHR enrichment (has_critical_lab, n_medication_changes_24h)
+    # is fetched from Cassandra patient_state inside foreachBatch and
+    # combined with these features to compute the v2 four-term score.
     windowed = eeg.groupBy(
         F.col("patient_id"),
         F.window(F.col("event_time"), "30 seconds", "15 seconds").alias("win"),
@@ -172,38 +176,31 @@ def build_kafka_streaming_pipeline(
         F.count(F.col("session_id")).alias("eeg_chunk_count"),
         F.avg(F.col("sampling_rate_hz")).alias("mean_sampling_rate_hz"),
         F.max(F.col("window_seconds")).alias("max_window_seconds"),
-        F.lit(False).alias("has_critical_lab"),
-    )
-
-    def _score(eeg_chunk_count, mean_sr, patient_id, win_start):
-        chunk_count = int(eeg_chunk_count or 0)
-        signal_quality = max(0.0, min(1.0, (float(mean_sr) if mean_sr else 200.0) / 250.0))
-        chunk_term = min(chunk_count / 25.0, 1.0)
-        quality_term = 1.0 - signal_quality
-        base = 0.60 * chunk_term + 0.40 * quality_term
-        # Per-patient/per-window pseudo-randomness so a real clinical mix is
-        # visible on the dashboard (in production this would be EHR-driven).
-        # Use zlib.crc32 (not builtin hash(), which is salted per-process and
-        # would make scores non-deterministic across Spark executors/runs).
-        import zlib
-        key = f"{patient_id or 'X'}|{int(win_start or 0)}".encode("utf-8")
-        h = (zlib.crc32(key) & 0xffffffff) / 0xffffffff
-        variance = (h - 0.5) * 0.5   # [-0.25, +0.25]
-        return float(max(0.0, min(base + variance, 1.0)))
-
-    score_udf = F.udf(_score, FloatType())
-    scored = windowed.withColumn(
-        "anomaly_score",
-        score_udf(
-            F.col("eeg_chunk_count"),
-            F.col("mean_sampling_rate_hz"),
-            F.col("patient_id"),
-            F.col("win.start").cast("long"),
-        ),
     )
 
     def _write_batch(df, batch_id):
-        from brainwatch.serving.anomaly_rules import classify_v2
+        """foreachBatch sink — the canonical Lambda lookup pattern.
+
+        For each micro-batch:
+          1. Collect the windowed feature rows to the driver.
+          2. Look up the EHR-derived enrichment for the batch's distinct
+             patients in one CQL ``SELECT IN`` against
+             ``brainwatch.patient_state``. Each row is a partition-key
+             seek, so the cost is dominated by network round-trip.
+          3. For every row, build the full v2 four-term feature dict
+             (chunk_count + signal_quality_score from EEG; has_critical_lab
+             + n_medication_changes_24h from the lookup) and score it
+             with :func:`anomaly_rules.compute_anomaly_score`.
+          4. Classify the score with :func:`anomaly_rules.classify_v2`,
+             which fires the critical-lab escalation when the lookup
+             returned ``has_critical_lab=True``.
+          5. Insert into ``brainwatch.alerts`` keyed by
+             ``(patient_id, alert_time)`` so a replay is a no-op upsert.
+        """
+        from brainwatch.serving.anomaly_rules import (
+            compute_anomaly_score, classify_v2,
+        )
+        from brainwatch.serving.cassandra_sink import fetch_patient_enrichment
         from cassandra.cluster import Cluster
         rows = df.collect()
         if not rows:
@@ -212,30 +209,52 @@ def build_kafka_streaming_pipeline(
         cluster = Cluster([host])
         try:
             session = cluster.connect("brainwatch")
+            # One round-trip lookup for the whole micro-batch.
+            patient_ids = sorted({row["patient_id"] for row in rows
+                                  if row["patient_id"] is not None})
+            enrichment = fetch_patient_enrichment(session, patient_ids)
             insert = session.prepare(
-                "INSERT INTO alerts (patient_id, alert_time, severity, anomaly_score, explanation) "
-                "VALUES (?, ?, ?, ?, ?)"
+                "INSERT INTO alerts (patient_id, alert_time, severity, "
+                "anomaly_score, explanation) VALUES (?, ?, ?, ?, ?)"
             )
             written = 0
             for row in rows:
-                score = float(row["anomaly_score"] or 0.0)
+                pid = row["patient_id"]
                 mean_sr = float(row["mean_sampling_rate_hz"] or 0.0)
                 signal_quality = max(0.0, min(1.0, mean_sr / 250.0))
+                enrich = enrichment.get(pid, {})
+                features = {
+                    "eeg_chunk_count": int(row["eeg_chunk_count"] or 0),
+                    "signal_quality_score": signal_quality,
+                    "has_critical_lab": bool(enrich.get("has_critical_lab", False)),
+                    "n_medication_changes_24h": int(
+                        enrich.get("n_medication_changes_24h", 0)),
+                }
+                # Real v2 four-term score from anomaly_rules.
+                score = compute_anomaly_score(features)
+                # Quality gate stays as the pre-classifier suppression.
                 if signal_quality < 0.30:
                     severity = "suppressed"
                 else:
-                    severity = classify_v2(score, bool(row["has_critical_lab"])).severity
+                    severity = classify_v2(
+                        score, features["has_critical_lab"]).severity
                 win = row["win"]
                 alert_time = win.end if hasattr(win, "end") else datetime.now(timezone.utc)
                 explanation = (
                     f"window {win.start.isoformat()} → {win.end.isoformat()}; "
-                    f"eeg_chunks={row['eeg_chunk_count']}; mean_sr={mean_sr:.0f}"
+                    f"eeg_chunks={features['eeg_chunk_count']}; "
+                    f"mean_sr={mean_sr:.0f}; "
+                    f"critical_lab={features['has_critical_lab']}; "
+                    f"meds_24h={features['n_medication_changes_24h']}"
                 )
-                session.execute(insert, (row["patient_id"], alert_time, severity, score, explanation))
+                session.execute(insert, (pid, alert_time, severity, score, explanation))
                 written += 1
-            print(f"[foreachBatch batch_id={batch_id}] wrote {written} alerts to Cassandra")
+            print(f"[foreachBatch batch_id={batch_id}] wrote {written} alerts to Cassandra "
+                  f"(enriched={len(enrichment)} / batch_patients={len(patient_ids)})")
         finally:
             cluster.shutdown()
+
+    scored = windowed  # the score is computed inside foreachBatch now
 
     query = (scored.writeStream
              .foreachBatch(_write_batch)

@@ -16,12 +16,23 @@ CQL schema (applied by :func:`init_keyspace`)::
     ) WITH CLUSTERING ORDER BY (alert_time DESC);
 
     CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
-        patient_id              text PRIMARY KEY,
-        last_alert_time         timestamp,
-        last_severity           text,
-        signal_quality_score    float,
-        anomaly_score           float
+        patient_id                  text PRIMARY KEY,
+        last_alert_time             timestamp,
+        last_severity               text,
+        signal_quality_score        float,
+        anomaly_score               float,
+        has_critical_lab            boolean,
+        n_medication_changes_24h    int,
+        enrichment_updated_at       timestamp
     );
+
+The last three columns carry the batch-derived EHR enrichment that
+the speed layer reads (via :func:`fetch_patient_enrichment`) before
+computing the v2 anomaly score. The columns are populated by the
+gold/batch path (see ``processing.gold_layer.materialize_patient_enrichment``)
+and consumed by the speed-layer ``foreachBatch`` so the streaming
+path can score on the full four-term v2 formula without needing a
+stream-stream join.
 
 Driver dependency (Kim-Quan adds to optional extras): ``cassandra-driver``.
 Imports must be deferred so ``pytest`` works without it.
@@ -63,13 +74,29 @@ def init_keyspace(session: Any) -> None:
 
     session.execute("""
         CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
-            patient_id              text PRIMARY KEY,
-            last_alert_time         timestamp,
-            last_severity           text,
-            signal_quality_score    float,
-            anomaly_score           float
+            patient_id                  text PRIMARY KEY,
+            last_alert_time             timestamp,
+            last_severity               text,
+            signal_quality_score        float,
+            anomaly_score               float,
+            has_critical_lab            boolean,
+            n_medication_changes_24h    int,
+            enrichment_updated_at       timestamp
         )
     """)
+
+    # ALTER for clusters whose patient_state was created by an older
+    # schema (idempotent: Cassandra rejects ADD on existing columns
+    # with InvalidRequest, which we swallow).
+    for col_decl in (
+        "has_critical_lab boolean",
+        "n_medication_changes_24h int",
+        "enrichment_updated_at timestamp",
+    ):
+        try:
+            session.execute(f"ALTER TABLE brainwatch.patient_state ADD {col_decl}")
+        except Exception:  # cassandra.InvalidRequest: column already exists
+            pass
 
 
 def write_alerts(session: Any, alerts: list[dict[str, Any]]) -> int:
@@ -104,13 +131,69 @@ def upsert_patient_state(session: Any, patient_id: str,
                           alert_time: Any, severity: str,
                           signal_quality_score: float,
                           anomaly_score: float) -> None:
-    """Upsert (Cassandra is upsert-by-default) the latest state for a patient."""
+    """Upsert (Cassandra is upsert-by-default) the latest scoring state for a
+    patient. Updates only the alert-related columns; the enrichment columns
+    (``has_critical_lab``, ``n_medication_changes_24h``) are owned by
+    :func:`upsert_patient_enrichment` and left unchanged here."""
     stmt = """
         INSERT INTO brainwatch.patient_state
         (patient_id, last_alert_time, last_severity, signal_quality_score, anomaly_score)
         VALUES (%s, %s, %s, %s, %s)
     """
     session.execute(stmt, (patient_id, alert_time, severity, signal_quality_score, anomaly_score))
+
+
+def upsert_patient_enrichment(session: Any, patient_id: str,
+                               has_critical_lab: bool,
+                               n_medication_changes_24h: int,
+                               updated_at: Any | None = None) -> None:
+    """Write the per-patient EHR-derived enrichment (the ``has_critical_lab``
+    flag and the medication-change count over the last 24 h) to
+    ``patient_state``. Called from the batch/gold path via
+    :func:`processing.gold_layer.materialize_patient_enrichment`; consumed by
+    the speed layer's ``foreachBatch`` so each micro-batch computes the
+    real v2 anomaly score on the full four-term feature row."""
+    from datetime import datetime, timezone
+    stmt = """
+        INSERT INTO brainwatch.patient_state
+        (patient_id, has_critical_lab, n_medication_changes_24h, enrichment_updated_at)
+        VALUES (%s, %s, %s, %s)
+    """
+    ts = updated_at if updated_at is not None else datetime.now(timezone.utc)
+    session.execute(stmt, (patient_id, bool(has_critical_lab),
+                           int(n_medication_changes_24h), ts))
+
+
+def fetch_patient_enrichment(session: Any,
+                              patient_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """One round-trip lookup of EHR-derived enrichment for the patients in a
+    streaming micro-batch. Returns ``{patient_id: {has_critical_lab,
+    n_medication_changes_24h, enrichment_updated_at}}``. Patients absent from
+    ``patient_state`` (cold start, gold not yet computed for them) are not
+    included; the caller defaults their features to a benign zero.
+
+    Implemented as a single CQL ``SELECT ... WHERE patient_id IN (...)`` —
+    each row is a partition-key seek, so the cost is dominated by network
+    round-trip, not by partition scans.
+    """
+    if not patient_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(patient_ids))
+    stmt = f"""
+        SELECT patient_id, has_critical_lab, n_medication_changes_24h,
+               enrichment_updated_at
+        FROM brainwatch.patient_state
+        WHERE patient_id IN ({placeholders})
+    """
+    rows = session.execute(stmt, tuple(patient_ids))
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        out[row.patient_id] = {
+            "has_critical_lab": bool(row.has_critical_lab) if row.has_critical_lab is not None else False,
+            "n_medication_changes_24h": int(row.n_medication_changes_24h or 0),
+            "enrichment_updated_at": row.enrichment_updated_at,
+        }
+    return out
 
 
 def query_recent_alerts(session: Any, patient_id: str,
