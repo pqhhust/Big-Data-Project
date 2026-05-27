@@ -1,11 +1,14 @@
-# BrainWatch local development stack: Kafka (KRaft) + Spark
+# BrainWatch local development stack: Kafka (KRaft) + Spark + Cassandra
 #
 # Usage:
 #   docker compose -f infra/docker/docker-compose.yml up -d
 #   docker compose -f infra/docker/docker-compose.yml down
 #
-# Kafka UI available at http://localhost:8080
-# Spark Master UI at http://localhost:8081
+# Kafka UI available at http://localhost:8890
+# Spark Master UI at http://localhost:8891
+# Cassandra CQL at  localhost:9042 (cqlsh)
+#
+# End-to-end local verification: see scripts/end_to_end_local.sh.
 
 services:
   kafka:
@@ -84,5 +87,65 @@ services:
       SPARK_WORKER_CORES: 2
       SPARK_NO_DAEMONIZE: "true"
 
+  # Cassandra is added so the full speed-layer path (lookup + join) can
+  # be verified end-to-end locally without bringing up EKS. Both
+  # speed_layer queries write alerts here tagged with the `source`
+  # column; scripts/end_to_end_local.sh asserts both tags appear.
+  cassandra:
+    image: cassandra:4.1
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: brainwatch-local
+      CASSANDRA_DC: dc1
+      CASSANDRA_RACK: rack1
+      CASSANDRA_ENDPOINT_SNITCH: SimpleSnitch
+      MAX_HEAP_SIZE: 1G
+      HEAP_NEWSIZE: 256M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+
+  cassandra-init:
+    image: cassandra:4.1
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Initialising brainwatch keyspace and tables..."
+        cqlsh cassandra -e "
+          CREATE KEYSPACE IF NOT EXISTS brainwatch
+            WITH replication = {'class':'SimpleStrategy','replication_factor':1};
+          CREATE TABLE IF NOT EXISTS brainwatch.alerts (
+            patient_id text,
+            alert_time timestamp,
+            severity text,
+            anomaly_score float,
+            explanation text,
+            session_id text,
+            source text,
+            PRIMARY KEY (patient_id, alert_time)
+          ) WITH CLUSTERING ORDER BY (alert_time DESC);
+          CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
+            patient_id text PRIMARY KEY,
+            last_alert_time timestamp,
+            last_severity text,
+            signal_quality_score float,
+            anomaly_score float,
+            has_critical_lab boolean,
+            n_medication_changes_24h int,
+            enrichment_updated_at timestamp
+          );
+        "
+        echo "Cassandra schema applied."
+    restart: "no"
+
 volumes:
   kafka-data:
+  cassandra-data:

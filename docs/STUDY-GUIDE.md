@@ -840,6 +840,63 @@ with no reliance on cluster log retention.
   `tests/test_bronze_writer.py::test_invalid_event_routed_to_dlq`,
   `tests/test_dead_letter.py`
 
+**Beyond the EDF parser: the Kafka ingest boundary.**
+
+Ingestion isn't just the EDF-side parsing; it's also the Kafka
+publish path that hands events to the speed layer. Two design
+choices land there:
+
+1. **Producer configuration** (`scripts/kafka_producer_driver.py`):
+   - `acks="all"` — the broker leader waits for every in-sync
+     replica before acknowledging. The single-broker capstone has
+     ISR = {0} so this is effectively `acks=1`; in the
+     three-broker production posture it's the durability guarantee
+     for the EEG stream.
+   - `linger.ms=20` — wait 20 ms before sending so a few events
+     batch into one TCP write. The default is 5 ms; we keep 20 ms
+     because the per-event payload is ≈ 330 bytes and the broker's
+     default `batch.size=16 KB` then holds ~50 messages, which is a
+     better network-utilisation ratio than 5 ms's ~12.
+   - `compression.type="gzip"` — JSON payloads compress to roughly
+     a third, and gzip is broadly supported across consumers.
+   - `retries=5` + `max_in_flight_requests_per_connection=1` — the
+     producer waits for an ack between sends, so retries don't
+     reorder messages within a partition.
+
+2. **FileProducer fallback** (`src/brainwatch/ingestion/kafka_helpers.py`):
+   `get_producer()` returns a `FileProducer` (writes JSONL to disk)
+   when `kafka-python` isn't installed or the broker is
+   unreachable. The local-dev story (no Kafka container, just
+   write to disk) then mirrors the production story (Kafka topic)
+   one-to-one — every script that uses `get_producer` works on a
+   developer laptop without bringing up Docker.
+
+**Kafka topic shape (also part of ingestion).**
+
+| Topic | Partitions | Producer | Consumer |
+|---|---|---|---|
+| `eeg.raw` | 4 | `kafka_producer_driver.py` | speed-layer lookup + join queries |
+| `ehr.updates` | 4 | EHR loader scripts | speed-layer join query |
+| `alerts.anomaly` | 2 | `serving/alert_publisher.py` | downstream subscribers |
+| `dead.letter` | 1 | `ingestion/dead_letter.py` | (audit only) |
+
+Four partitions per stream topic lets the speed-layer Spark query
+read with up to 4-way parallelism without rebalance. The single
+partition on `dead.letter` is by design — DLQ records are read by
+operators, not by streaming consumers, so partition parallelism
+brings no benefit.
+
+**Where to look in the repo (Kafka ingest path).**
+
+- Producer driver with the config above →
+  `scripts/kafka_producer_driver.py`
+- Producer wrapper + FileProducer fallback →
+  `src/brainwatch/ingestion/kafka_helpers.py`
+- Topic creation (local dev) → `infra/docker/docker-compose.yml`
+  (the `kafka-init` service)
+- Tests pinning the round-trip + fallback →
+  `tests/test_kafka_helpers.py` (3 tests)
+
 ---
 
 ### Lesson 2 — Data Processing with Spark
