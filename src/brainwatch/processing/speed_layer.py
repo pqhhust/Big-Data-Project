@@ -215,7 +215,8 @@ def build_kafka_streaming_pipeline(
             enrichment = fetch_patient_enrichment(session, patient_ids)
             insert = session.prepare(
                 "INSERT INTO alerts (patient_id, alert_time, severity, "
-                "anomaly_score, explanation) VALUES (?, ?, ?, ?, ?)"
+                "anomaly_score, explanation, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)"
             )
             written = 0
             for row in rows:
@@ -247,9 +248,10 @@ def build_kafka_streaming_pipeline(
                     f"critical_lab={features['has_critical_lab']}; "
                     f"meds_24h={features['n_medication_changes_24h']}"
                 )
-                session.execute(insert, (pid, alert_time, severity, score, explanation))
+                session.execute(insert, (pid, alert_time, severity, score,
+                                          explanation, "speed_lookup"))
                 written += 1
-            print(f"[foreachBatch batch_id={batch_id}] wrote {written} alerts to Cassandra "
+            print(f"[lookup foreachBatch batch_id={batch_id}] wrote {written} alerts "
                   f"(enriched={len(enrichment)} / batch_patients={len(patient_ids)})")
         finally:
             cluster.shutdown()
@@ -266,8 +268,191 @@ def build_kafka_streaming_pipeline(
     return query
 
 
+def build_kafka_join_pipeline(
+    spark: Any,
+    kafka_servers: str,
+    cassandra_contact_points: str,
+    checkpoint_path: str,
+    eeg_topic: str = "eeg.raw",
+    ehr_topic: str = "ehr.updates",
+    starting_offsets: str = "latest",
+    eeg_watermark: str = "30 seconds",
+    ehr_watermark: str = "30 minutes",
+    window_duration: str = "1 minute",
+    window_slide: str = "30 seconds",
+):
+    """Kafka-source **stream-stream join** speed-layer query.
+
+    This is the canonical Lambda speed-layer design: EEG and EHR are both
+    streamed from Kafka, joined on ``patient_id`` within a watermark-bounded
+    event-time predicate, windowed per ``(patient_id, window)``, scored with
+    the v2 four-term formula directly off the joined row, and inserted into
+    Cassandra with ``source='speed_join'``.
+
+    Runs concurrently with :func:`build_kafka_streaming_pipeline` (the
+    Cassandra-lookup variant tagged ``source='speed_lookup'``); both write
+    to ``brainwatch.alerts`` and the dashboard's Real-Time Alerts panel
+    filters on ``source`` to show each path side by side.
+
+    Latency note: append-mode + windowed aggregation downstream of the
+    stream-stream join means alerts from this path are emitted only after
+    the watermark passes the lower bound of the join window. For the
+    default settings the emission delay is the EEG watermark plus the
+    window width, roughly $60$~seconds, which is why this path is the
+    accuracy benchmark, not the live-demo headline; the lookup path stays
+    the headline at p50 ~12 s.
+    """
+    from datetime import datetime, timezone
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import (
+        FloatType, IntegerType, StringType, StructField, StructType,
+    )
+
+    eeg_schema = StructType([
+        StructField("patient_id", StringType()),
+        StructField("session_id", StringType()),
+        StructField("event_time", StringType()),
+        StructField("site_id", StringType()),
+        StructField("channel_count", IntegerType()),
+        StructField("sampling_rate_hz", FloatType()),
+        StructField("window_seconds", FloatType()),
+        StructField("source_uri", StringType()),
+    ])
+    ehr_schema = StructType([
+        StructField("patient_id", StringType()),
+        StructField("encounter_id", StringType()),
+        StructField("event_time", StringType()),
+        StructField("event_type", StringType()),
+        StructField("source_system", StringType()),
+        StructField("version", IntegerType()),
+    ])
+
+    eeg = (spark.readStream
+           .format("kafka")
+           .option("kafka.bootstrap.servers", kafka_servers)
+           .option("subscribe", eeg_topic)
+           .option("startingOffsets", starting_offsets)
+           .option("maxOffsetsPerTrigger", "5000")
+           .load()
+           .select(F.from_json(F.col("value").cast("string"), eeg_schema).alias("e"))
+           .select("e.*")
+           .withColumn("event_time", F.to_timestamp("event_time"))
+           .withWatermark("event_time", eeg_watermark))
+
+    ehr = (spark.readStream
+           .format("kafka")
+           .option("kafka.bootstrap.servers", kafka_servers)
+           .option("subscribe", ehr_topic)
+           .option("startingOffsets", starting_offsets)
+           .load()
+           .select(F.from_json(F.col("value").cast("string"), ehr_schema).alias("h"))
+           .select("h.*")
+           .withColumn("event_time", F.to_timestamp("event_time"))
+           .withWatermark("event_time", ehr_watermark))
+
+    # Stream-stream join on patient_id within a time-predicate bounded by
+    # both watermarks. Spark requires the predicate to be expressed via the
+    # event-time columns so it can plan state retention.
+    joined = eeg.alias("e").join(
+        ehr.alias("h"),
+        F.expr(
+            "e.patient_id = h.patient_id AND "
+            "h.event_time BETWEEN e.event_time - INTERVAL 30 MINUTES "
+            "                   AND e.event_time + INTERVAL 30 MINUTES"
+        ),
+        how="left_outer",
+    )
+
+    # Windowed aggregation per (patient_id, window) over the joined stream.
+    # The joined row carries both EEG and EHR fields, so the v2 features can
+    # all be derived in one pass.
+    windowed = joined.groupBy(
+        F.col("e.patient_id").alias("patient_id"),
+        F.window(F.col("e.event_time"), window_duration, window_slide).alias("win"),
+    ).agg(
+        F.count(F.col("e.session_id")).alias("eeg_chunk_count"),
+        F.avg(F.col("e.sampling_rate_hz")).alias("mean_sampling_rate_hz"),
+        F.max(F.when(F.col("h.event_type") == "critical_lab", 1)
+                .otherwise(0)).alias("has_critical_lab_int"),
+        F.sum(F.when(F.col("h.event_type") == "medication", 1)
+                .otherwise(0)).alias("n_medication_changes_24h"),
+    )
+
+    def _write_batch_join(df, batch_id):
+        from brainwatch.serving.anomaly_rules import (
+            compute_anomaly_score, classify_v2,
+        )
+        from cassandra.cluster import Cluster
+        rows = df.collect()
+        if not rows:
+            return
+        host = cassandra_contact_points.split(",")[0]
+        cluster = Cluster([host])
+        try:
+            session = cluster.connect("brainwatch")
+            insert = session.prepare(
+                "INSERT INTO alerts (patient_id, alert_time, severity, "
+                "anomaly_score, explanation, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)"
+            )
+            written = 0
+            for row in rows:
+                pid = row["patient_id"]
+                mean_sr = float(row["mean_sampling_rate_hz"] or 0.0)
+                signal_quality = max(0.0, min(1.0, mean_sr / 250.0))
+                features = {
+                    "eeg_chunk_count": int(row["eeg_chunk_count"] or 0),
+                    "signal_quality_score": signal_quality,
+                    "has_critical_lab": bool(row["has_critical_lab_int"] or 0),
+                    "n_medication_changes_24h": int(
+                        row["n_medication_changes_24h"] or 0),
+                }
+                # Same canonical v2 formula as the lookup path — only the
+                # source of the EHR features differs.
+                score = compute_anomaly_score(features)
+                if signal_quality < 0.30:
+                    severity = "suppressed"
+                else:
+                    severity = classify_v2(
+                        score, features["has_critical_lab"]).severity
+                win = row["win"]
+                alert_time = win.end if hasattr(win, "end") else datetime.now(timezone.utc)
+                explanation = (
+                    f"window {win.start.isoformat()} → {win.end.isoformat()}; "
+                    f"eeg_chunks={features['eeg_chunk_count']}; "
+                    f"mean_sr={mean_sr:.0f}; "
+                    f"critical_lab={features['has_critical_lab']}; "
+                    f"meds_24h={features['n_medication_changes_24h']}"
+                )
+                session.execute(insert, (pid, alert_time, severity, score,
+                                          explanation, "speed_join"))
+                written += 1
+            print(f"[join foreachBatch batch_id={batch_id}] wrote {written} alerts "
+                  f"(stream-stream join, output-mode append)")
+        finally:
+            cluster.shutdown()
+
+    query = (windowed.writeStream
+             .foreachBatch(_write_batch_join)
+             .outputMode("append")
+             .option("checkpointLocation",
+                     f"{checkpoint_path}/kafka_speed_join")
+             .trigger(processingTime="30 seconds")
+             .start())
+    return query
+
+
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point.
+
+    ``--mode`` picks the speed-layer variant(s) to start. ``lookup``
+    (default) is the Cassandra-lookup variant tagged ``source='speed_lookup'``;
+    ``join`` is the Kafka stream-stream-join variant tagged
+    ``source='speed_join'``; ``both`` starts the two queries concurrently
+    in the same SparkSession. The legacy ``parquet`` mode keeps the
+    bronze-Parquet-source design variant (``build_streaming_pipeline``)
+    available for offline replays.
+    """
     import argparse
     from pyspark.sql import SparkSession
     from pyspark import SparkConf
@@ -277,7 +462,15 @@ def main() -> None:
     parser.add_argument("--checkpoint", default="data/checkpoints")
     parser.add_argument("--kafka", default="kafka:9092")
     parser.add_argument("--cassandra", default="cassandra-svc")
-    parser.add_argument("--mode", choices=["parquet", "kafka"], default="parquet")
+    parser.add_argument(
+        "--mode",
+        choices=["lookup", "join", "both", "parquet"],
+        default="lookup",
+        help="lookup = Cassandra patient_state lookup; "
+             "join = Kafka stream-stream join; "
+             "both = start lookup + join concurrently; "
+             "parquet = legacy bronze-Parquet stream-stream join.",
+    )
     parser.add_argument("--eeg-topic", default="eeg.raw")
     parser.add_argument("--ehr-topic", default="ehr.updates")
     args = parser.parse_args()
@@ -289,26 +482,41 @@ def main() -> None:
     spark = SparkSession.builder.config(conf=conf).getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
 
-    if args.mode == "kafka":
-        query = build_kafka_streaming_pipeline(
+    queries = []
+    if args.mode in ("lookup", "both"):
+        queries.append(build_kafka_streaming_pipeline(
             spark,
             kafka_servers=args.kafka,
             cassandra_contact_points=args.cassandra,
             checkpoint_path=args.checkpoint,
             eeg_topic=args.eeg_topic,
             ehr_topic=args.ehr_topic,
-        )
-    else:
-        query = build_streaming_pipeline(
+        ))
+        print("Started Cassandra-lookup speed layer (source='speed_lookup')")
+    if args.mode in ("join", "both"):
+        queries.append(build_kafka_join_pipeline(
             spark,
-            args.bronze,
-            args.checkpoint,
-            args.kafka,
-            args.cassandra,
-        )
+            kafka_servers=args.kafka,
+            cassandra_contact_points=args.cassandra,
+            checkpoint_path=args.checkpoint,
+            eeg_topic=args.eeg_topic,
+            ehr_topic=args.ehr_topic,
+        ))
+        print("Started Kafka stream-stream-join speed layer (source='speed_join')")
+    if args.mode == "parquet":
+        queries.append(build_streaming_pipeline(
+            spark, args.bronze, args.checkpoint, args.kafka, args.cassandra,
+        ))
+        print("Started bronze-Parquet stream-stream-join speed layer (legacy)")
 
-    print(f"Speed layer ({args.mode}) streaming query started")
-    query.awaitTermination()
+    if not queries:
+        raise SystemExit(f"No queries started for mode={args.mode!r}")
+
+    print(f"Speed layer mode={args.mode}: {len(queries)} streaming "
+          f"query(ies) running concurrently.")
+    # awaitAnyTermination so a crash in either query surfaces; the other
+    # is still inspectable via the StreamingQueryManager.
+    spark.streams.awaitAnyTermination()
 
 
 if __name__ == "__main__":

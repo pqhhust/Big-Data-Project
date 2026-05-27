@@ -12,8 +12,17 @@ CQL schema (applied by :func:`init_keyspace`)::
         anomaly_score  float,
         explanation    text,
         session_id     text,
+        source         text,            -- 'speed_lookup' | 'speed_join'
         PRIMARY KEY (patient_id, alert_time)
     ) WITH CLUSTERING ORDER BY (alert_time DESC);
+
+The ``source`` column distinguishes the two speed-layer paths that
+run concurrently: ``speed_lookup`` is the Cassandra-lookup variant
+(``build_kafka_streaming_pipeline`` in
+``processing.speed_layer``), and ``speed_join`` is the
+stream-stream join variant (``build_kafka_join_pipeline`` in the
+same module). The dashboard's Real-Time Alerts panel can filter on
+this column to compare the two paths side by side.
 
     CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
         patient_id                  text PRIMARY KEY,
@@ -68,9 +77,17 @@ def init_keyspace(session: Any) -> None:
             anomaly_score  float,
             explanation    text,
             session_id     text,
+            source         text,
             PRIMARY KEY (patient_id, alert_time)
         ) WITH CLUSTERING ORDER BY (alert_time DESC)
     """)
+
+    # Backwards-compatible ALTER for clusters that already have an older
+    # alerts schema without the source column.
+    try:
+        session.execute("ALTER TABLE brainwatch.alerts ADD source text")
+    except Exception:
+        pass
 
     session.execute("""
         CREATE TABLE IF NOT EXISTS brainwatch.patient_state (
