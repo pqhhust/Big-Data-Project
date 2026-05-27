@@ -166,12 +166,31 @@ every pod / PVC; S3 buckets and BDSP sit *outside* the envelope.
     - Spark config: `--master 'local[*]' --driver-memory 3g
       --conf spark.sql.shuffle.partitions=8`,
       `spark.sql.adaptive.enabled=true`.
-    - Streaming config: `withWatermark("event_time", "30 seconds")`,
-      `window("30 seconds", "15 seconds")`,
-      `maxOffsetsPerTrigger=5000`,
-      `trigger(processingTime="5 seconds")`,
-      checkpoint on **`checkpoints-pvc` (5 GiB gp3)**.
+    - **Runs two streaming queries concurrently** (via
+      `speed_layer.main() --mode=both`); draw them as two nested
+      boxes inside the speed-layer pod:
+      - **Lookup query** (`source='speed_lookup'`): subscribes only
+        to `eeg.raw` (30 s watermark), aggregates per
+        `(patient_id, window("30 s", "15 s"))`,
+        `foreachBatch → fetch_patient_enrichment` against
+        Cassandra `patient_state`, `compute_anomaly_score`, INSERT
+        alert. `trigger="5 s"`, checkpoint at
+        `/data/checkpoints/kafka_speed_layer`.
+      - **Join query** (`source='speed_join'`): subscribes to BOTH
+        `eeg.raw` (30 s watermark) and `ehr.updates` (30 min
+        watermark), left-outer stream-stream JOIN on `patient_id`
+        within `±30 min` event-time predicate, aggregates per
+        `(patient_id, window("1 m", "30 s"))`,
+        `compute_anomaly_score` on the joined row, INSERT alert.
+        `trigger="30 s"`, checkpoint at
+        `/data/checkpoints/kafka_speed_join`.
+    - Both queries share `checkpoints-pvc` (5 GiB gp3); each has its
+      own subdirectory so a checkpoint reset on one doesn't disturb
+      the other.
   - **`checkpoints-pvc`** — PVC, **5 GiB gp3** (Spark state store).
+    Holds two subdirectories: `kafka_speed_layer/` (lookup query
+    offsets + state-store deltas) and `kafka_speed_join/` (join
+    query offsets + state-store deltas).
 
 - **Serving lane (inside EKS):**
   - **Cassandra 4.1** — StatefulSet, **replicas: 1**, `RF=1`,
@@ -299,9 +318,15 @@ numbers so the triad is project-specific, not generic textbook).**
 - **Speed layer** (bottom-left box). Inside:
   - "Kafka 3.9 KRaft → Spark Structured Streaming → Cassandra"
   - 4 partitions/topic, 1.3M+ events each
-  - 30 s watermark, 30 s/15 s window, `trigger=5 s`
-  - **60–100 alerts per micro-batch**
-  - **p50 alert visibility ≈ 12 s**
+  - **Two concurrent queries:**
+    - **Lookup** (`source='speed_lookup'`): 30 s watermark,
+      30 s/15 s window, `trigger=5 s`, Cassandra
+      `patient_state` lookup in `foreachBatch`. **p50 ≈ 12 s**.
+    - **Join** (`source='speed_join'`): canonical Kafka
+      stream-stream join, 30 s EEG + 30 min EHR watermarks,
+      ±30 min predicate, 1 min/30 s window, `trigger=30 s`.
+      ≈ 60 s emission (append + windowed agg).
+  - **60–100 alerts per micro-batch** (lookup path)
 - **Serving layer** (right box, spanning both). Inside:
   - "Grafana 11 over S3 JSON + Cassandra"
   - Cassandra PK `(patient_id, alert_time)` absorbs replays

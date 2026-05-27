@@ -76,12 +76,12 @@ target throughout the report is Kubernetes on managed cloud.
 
 | Sub-item | Status | Where |
 |---|---|---|
-| Structured Streaming | Used | `speed_layer.build_kafka_streaming_pipeline` — reads Kafka, applies UDF, writes Cassandra |
-| Output modes | Used | Production: `outputMode("append")`. Design variant `build_streaming_pipeline` retains `outputMode("update")` for documentation |
-| Watermarking | Used | `withWatermark("event_time", "30 seconds")` on the EEG stream; the dropped stream-stream join used a 10-min watermark on EHR |
-| Late data handling | Used | Records past the watermark are dropped (append-mode semantics); the bronze writer's DLQ catches malformed records before they reach the stream |
-| State management | Used | Windowed aggregation state is persisted to `checkpoints-pvc`; the speed layer survives pod restart via checkpoint replay |
-| Exactly-once guarantees | Used | Replayable Kafka source + idempotent Cassandra primary key + checkpointed Spark state. Empirical check: `scripts/verify_exactly_once.sh` |
+| Structured Streaming | Used | Two concurrent queries via `speed_layer.main() --mode=both`: `build_kafka_streaming_pipeline` (Cassandra-lookup, `source='speed_lookup'`, p50 ≈ 12 s) and `build_kafka_join_pipeline` (Kafka stream-stream join, `source='speed_join'`, ≈ 60 s emission) |
+| Output modes | Used | Both production queries: `outputMode("append")`. Legacy `build_streaming_pipeline` (Parquet source) retains `outputMode("update")` |
+| Watermarking | Used | Lookup: `withWatermark("event_time", "30 seconds")` on EEG. Join: 30 s on EEG + 30 min on EHR; ±30-min event-time predicate on the stream-stream join |
+| Late data handling | Used | Records past the watermark dropped (append-mode); bronze writer's DLQ catches malformed records before the stream |
+| State management | Used | Windowed agg + join state persisted to `checkpoints-pvc` (lookup: `/kafka_speed_layer`, join: `/kafka_speed_join`); both queries survive pod restart via checkpoint replay |
+| Exactly-once guarantees | Used | Replayable Kafka source + idempotent Cassandra PK + checkpointed Spark state. Empirical check: `scripts/verify_exactly_once.sh` |
 
 ### 6. Advanced analytics (3 items)
 
@@ -118,7 +118,7 @@ structure prescribed by the rubric.
 |---|---|---|
 | 1 | Data Ingestion | `scripts/bronze_stream_from_s3.py` + `src/brainwatch/ingestion/bronze_writer.py` (SHA-256 dedup, DLQ routing, validation) |
 | 2 | Data Processing with Spark | `src/brainwatch/processing/silver_layer.py`, `gold_layer.py`; broadcast hint + AQE + `spark.sql.shuffle.partitions=16` |
-| 3 | Stream Processing | `src/brainwatch/processing/speed_layer.py::build_kafka_streaming_pipeline` + `scripts/verify_exactly_once.sh` |
+| 3 | Stream Processing | `src/brainwatch/processing/speed_layer.py::build_kafka_streaming_pipeline` (lookup) + `::build_kafka_join_pipeline` (stream-stream join), run concurrently via `main() --mode=both`; pod-delete test in `scripts/verify_exactly_once.sh` |
 | 4 | Data Storage | `infra/cloud/k8s-overlays/hdfs.yaml` (HDFS RF=2) + `infra/cloud/k8s-overlays/batch-on-hdfs.yaml` (Parquet partition layout) |
 | 5 | System Integration | `infra/cloud/k8s-overlays/batch-on-hdfs.yaml` (post-`-put` HDFS assertion in `hdfs-bronze-loader`) |
 | 6 | Performance Optimization | `Empirical.tex` §4 (Spark batch fixed-overhead model: ~80% startup + packages on every fire) |

@@ -186,13 +186,20 @@ code paths or scripts; 2 are out of scope with a stated reason.**
 
 **5. Stream processing (6/6)**
 
+Two speed-layer queries run **concurrently** via `speed_layer.main()
+--mode=both`: `build_kafka_streaming_pipeline` (`source='speed_lookup'`,
+Cassandra patient_state lookup, p50 ≈ 12 s) and
+`build_kafka_join_pipeline` (`source='speed_join'`, true Kafka
+stream-stream join, ≈ 60 s emission). Both score with the canonical
+`anomaly_rules.compute_anomaly_score`.
+
 | Sub-item | Where |
 |---|---|
-| Structured Streaming | `speed_layer.build_kafka_streaming_pipeline` — Kafka source, append mode |
-| Output modes | production: `outputMode("append")`. design variant `build_streaming_pipeline` retains `outputMode("update")` |
-| Watermarking | `withWatermark("event_time", "30 seconds")` on the EEG stream |
+| Structured Streaming | both `build_kafka_streaming_pipeline` (lookup) and `build_kafka_join_pipeline` (stream-stream join) |
+| Output modes | production: `outputMode("append")` on both queries; legacy `build_streaming_pipeline` (Parquet source) retains `outputMode("update")` for documentation |
+| Watermarking | lookup: `withWatermark("event_time", "30 seconds")` on EEG; join: 30 s EEG + 30 min EHR; predicate is `±30 min` between the two event-time columns |
 | Late data handling | records past the watermark dropped (append-mode); DLQ catches malformed records before the stream |
-| State management | windowed aggregation state on `checkpoints-pvc`; speed layer survives pod restart via checkpoint replay |
+| State management | windowed aggregation + join state on `checkpoints-pvc` (lookup: `/kafka_speed_layer`; join: `/kafka_speed_join`); both survive pod restart via checkpoint replay |
 | Exactly-once guarantees | replayable Kafka source + idempotent Cassandra PK + checkpointed state. Empirical check: `scripts/verify_exactly_once.sh` |
 
 **6. Advanced analytics (2/3 + 1 out of scope)**
@@ -268,10 +275,15 @@ Clustering `DESC` → newest-first read without ORDER BY.
    `source_uri` + measured features.
 9. **How is exactly-once handled?** — Replayable source (Kafka offsets) +
    idempotent sink (Cassandra PK upsert) + checkpointed state on HDFS.
-10. **What about the stream-stream join?** — Spark requires append mode for
-    stream-stream join with windowed agg → too much watermark+window delay for
-    a live demo → EEG-windowed live, EHR enrichment in batch. **Documented
-    lesson learned.**
+10. **What about the stream-stream join?** — We ship it. The speed layer runs
+    **two** queries concurrently: `build_kafka_streaming_pipeline` does a
+    Cassandra `patient_state` lookup per micro-batch (p50 ≈ 12 s, tagged
+    `source='speed_lookup'`); `build_kafka_join_pipeline` does the canonical
+    Kafka EEG⋈EHR stream-stream join with append-mode + windowed agg
+    (≈ 60 s emission, tagged `source='speed_join'`). The dashboard's
+    Real-Time Alerts panel filters on `source` to show both side by side.
+    The append-mode + windowed-agg latency is real but not a deal-breaker
+    when the lookup query is the live-demo headline.
 11. **Why hybrid HDFS + S3?** — HDFS is the **compute-side** distributed FS
     (bronze/silver/gold + Spark checkpoints, RF=2, NameNode UI demo). S3 is the
     **serving-side** so the dashboard survives a cluster teardown for ~$1/mo.
@@ -339,7 +351,7 @@ resume:   ~15-20 min  bash infra/cloud/resume_from_snapshots.sh
 |---|---|
 | Live dashboard slow / blank | Switch to **S3 static dashboard URL** — it serves the last snapshot, no cluster needed: `http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com` |
 | Pods CrashLoopBackOff | `kubectl logs ... --previous` — most common cause is the spark image's read-only `/home/spark`; fix is already in `real-pipeline.yaml` (`pip --target=/code/site-packages`). |
-| Stream-stream join error | We **deliberately** don't do live stream-stream join (append-mode + windowed agg = too much delay). Live is EEG-only; EHR enrichment in batch. Documented lesson learned. |
+| Stream-stream join in shipped code | `build_kafka_join_pipeline` is live alongside `build_kafka_streaming_pipeline`. Append-mode + 1-min window means ≈ 60 s emission delay — not a deal-breaker; that's why the lookup query is the headline and the join is the accuracy benchmark. Both write to `brainwatch.alerts` tagged via the `source` column. |
 | Q you don't know | "Good question — that's covered in `docs/QA-BANK.md` §X — short version: <one sentence>." Honest beats fabricated. |
 
 ### Phrases that score points

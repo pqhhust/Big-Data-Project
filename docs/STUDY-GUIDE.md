@@ -932,28 +932,52 @@ minute after the underlying signal can't be acted on for that window.
 - *Approach 3 — continuous trigger.* Sub-second latency, but
   continuous trigger supports only `map`, `filter`, `select`.
   Neither the windowed aggregation nor the join fits.
-- *Approach 4 — Lambda escape hatch: move the join to the batch
-  path.* The join is unconstrained on the batch side; the speed
-  layer loses the EHR-derived terms of the score but stays fast.
-  Trade-off: the live anomaly score uses two of the four weighted
-  terms, with the full EHR-enriched score recomputed on the batch
-  path.
+- *Approach 4 — Lambda serving-layer lookup.* Batch path writes a
+  per-patient EHR dimension into `brainwatch.patient_state`; speed
+  layer's `foreachBatch` reads it in a single CQL
+  `SELECT ... WHERE patient_id IN (...)` per micro-batch and scores
+  the full v2 four-term formula. Each row is a partition-key seek
+  on Cassandra, so the cost is dominated by network RTT. p50 alert
+  visibility ≈ 12 s.
+- *Approach 5 — Kafka stream-stream join (canonical).* Both
+  `eeg.raw` and `ehr.updates` are streamed from Kafka, joined on
+  `patient_id` within a ±30-min event-time predicate, windowed and
+  scored. The inherent latency is ~60 s from append-mode +
+  downstream windowed-agg emission. Useful as an accuracy benchmark
+  against Approach 4.
 
 **What we shipped.**
-The deployed code path is `build_kafka_streaming_pipeline` in
-`src/brainwatch/processing/speed_layer.py`. It subscribes to
-`eeg.raw` with `maxOffsetsPerTrigger=5000`, parses with `from_json`
-against an explicit `StructType`, applies
+**Both Approach 4 and Approach 5 run concurrently** in the same
+SparkSession through the `--mode=both` flag of
+`speed_layer.main()`. The two queries write to `brainwatch.alerts`
+tagged with a `source` column — `speed_lookup` (Approach 4) and
+`speed_join` (Approach 5) — and the dashboard's Real-Time Alerts
+panel filters on `source` to show the two paths side by side.
+`spark.streams.awaitAnyTermination()` surfaces a crash in either
+query without taking the other down silently.
+
+The lookup query (`build_kafka_streaming_pipeline`) subscribes to
+`eeg.raw` with `maxOffsetsPerTrigger=5000`, applies
 `withWatermark("event_time", "30 seconds")`, aggregates per
-`(patient_id, window(event_time, "30 seconds", "15 seconds"))`, runs
-the windowed feature row through a Python UDF (`_score`) that returns
-a 0–1 anomaly score, and writes via `foreachBatch` into Cassandra
-with `outputMode("append")` + `trigger(processingTime="5 seconds")`.
-A second subscription to `ehr.updates` sinks to `noop` so consumer
-offsets advance and lag metrics stay meaningful. The canonical
-stream-stream join variant is kept in the same file as
-`build_streaming_pipeline` for documentation. Measured outcome: the
-speed layer writes 60–100 alerts per micro-batch into Cassandra at a
+`(patient_id, window(event_time, "30 seconds", "15 seconds"))`, and
+in `foreachBatch` calls `fetch_patient_enrichment` to look up
+`(has_critical_lab, n_medication_changes_24h)` for the batch's
+distinct patients, then computes the score via
+`anomaly_rules.compute_anomaly_score`. Trigger
+`processingTime="5 seconds"`.
+
+The join query (`build_kafka_join_pipeline`) streams both topics
+from Kafka, applies `withWatermark` (30 s on EEG, 30 min on EHR),
+left-outer joins on `patient_id` within a ±30-min event-time
+predicate, groups per `(patient_id, window("1 minute", "30 seconds"))`,
+extracts `has_critical_lab = max(when(event_type='critical_lab', 1))`
+and `n_medication_changes_24h = sum(when(event_type='medication', 1))`
+off the joined row, and scores with the same
+`compute_anomaly_score`. Trigger `processingTime="30 seconds"`
+(matches the append-mode emission cadence so the query isn't busy
+between watermark advances).
+
+Measured outcome (lookup path): 60–100 alerts per micro-batch at a
 sustained 333 events/s per topic; cumulative reaches 100,000 alerts
 at cohort scale; end-to-end p50 alert visibility ≈ 12 s.
 
@@ -962,19 +986,29 @@ at cohort scale; end-to-end p50 alert visibility ≈ 12 s.
 source (Kafka offsets in the Spark checkpoint), an idempotent sink
 (Cassandra PK `(patient_id, alert_time)` makes a replayed insert a
 no-op upsert), and checkpointed state (the Spark state store on
-`checkpoints-pvc`).* When a streaming join becomes a latency hazard,
-push the join to the batch path — that's exactly why Lambda has two
-paths.
+`checkpoints-pvc`).* When a streaming join is a latency hazard for
+the live demo, the Lambda answer isn't to abandon the EHR features
+— it's to read them from the batch-maintained serving-layer
+dimension, while keeping the canonical stream-stream join live
+alongside as the accuracy benchmark.
 
 **Where to look in the repo.**
 
-- Deployed speed layer →
+- Lookup pipeline (deployed default) →
   `src/brainwatch/processing/speed_layer.py::build_kafka_streaming_pipeline`
-- Stream-stream join design variant (kept for documentation) →
-  `src/brainwatch/processing/speed_layer.py::build_streaming_pipeline`
+- Kafka stream-stream join pipeline →
+  `src/brainwatch/processing/speed_layer.py::build_kafka_join_pipeline`
+- CLI runner that starts both concurrently →
+  `src/brainwatch/processing/speed_layer.py::main` (`--mode=both`)
+- Batch-side dimension upsert →
+  `src/brainwatch/processing/gold_layer.py::materialize_patient_enrichment`
+- Per-batch lookup helper →
+  `src/brainwatch/serving/cassandra_sink.py::fetch_patient_enrichment`
+- Cassandra alerts schema with `source` column →
+  `src/brainwatch/serving/cassandra_sink.py::init_keyspace`
 - Empirical pod-delete check → `scripts/verify_exactly_once.sh`
-- Cassandra schema with PK that absorbs replays →
-  `src/brainwatch/serving/cassandra_sink.py`
+- 7 unit tests for the enrichment path →
+  `tests/test_serving_enrichment.py`
 
 ---
 
