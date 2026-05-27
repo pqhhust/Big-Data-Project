@@ -251,6 +251,86 @@ The picture every team member must be able to draw on a whiteboard:
 | Hot store | **Cassandra 4.1** | Fast writes, partition by `patient_id` gives O(1) "this patient's alerts." |
 | Cluster | **AWS EKS + EBS gp3** | Managed control plane; EBS CSI for stateful workloads; we know the cost model. |
 
+### 4.1 Figure convention (`fig:arch` in the report)
+
+The deployed-topology figure in `Prototyping.tex` uses a compact
+shorthand so every box can carry its resource specs in one line. If
+you read the figure with this key in hand, every numeric annotation
+is verifiable against the manifests in `infra/cloud/k8s-overlays/`.
+
+**Box-label shorthand**
+
+| Token in the figure | Meaning | Manifest field |
+|---|---|---|
+| `Deploy 1` | Kubernetes `Deployment` with `replicas: 1` | `kind: Deployment` + `spec.replicas: 1` |
+| `STS 1` | `StatefulSet` with `replicas: 1` | `kind: StatefulSet` + `spec.replicas: 1` |
+| `STS 2` (implicit in `DN-0 / DN-1`) | StatefulSet with `replicas: 2` | the two HDFS DataNodes are one STS with replicas=2 |
+| `CronJob */5 min` | `kind: CronJob`, schedule `*/5 * * * *` | the two batch jobs in `batch-on-hdfs.yaml` |
+| `PVC 20 Gi` | `PersistentVolumeClaim`, `storage: 20Gi` | `volumeClaimTemplates` or a standalone PVC |
+| `500m → 1` | CPU `request → limit` | `resources.requests.cpu` → `resources.limits.cpu` |
+| `1 → 2 Gi` | memory `request → limit` | `resources.requests.memory` → `resources.limits.memory` |
+| `RF=2` | HDFS replication factor | `HDFS_CONF_dfs_replication: "2"` in `hdfs-env` |
+| `4 parts` | Kafka topic partition count | `--partitions 4` at topic create time |
+| `NodePort` | Service `type: NodePort` | `spec.type: NodePort` in the Grafana service |
+
+**Lane convention.** The dashed outer envelope = the EKS cluster
+(`namespace: brainwatch`). Inside, three horizontally-grouped lanes:
+
+- **Batch path** (top) — S3 raw → bronze → HDFS lake → silver / gold
+- **Streaming alert path** (middle) — same bronze → Kafka → speed-layer → Cassandra
+- **Observability path** (bottom) — exporters + Grafana
+
+Lanes are visual grouping, not Kubernetes resources. Pods don't know
+which lane they're in; the labelling is for the reader.
+
+**Arrow convention.**
+
+- **Solid arrows** = data movement (one component writes; another reads).
+- **Dashed gray arrows** = read-only probes (nothing is written to the
+  target). All three probes from the `cluster-state-exporter` are
+  dashed — to the K8s API, to HDFS, and to Cassandra — because the
+  exporter is asking "what's your state?", not pushing anything.
+
+**Outside the envelope** = Amazon S3 (BDSP credentialed bucket,
+project `raw_edf/` mirror, `dashboard/` static-website bucket). These
+persist whether the cluster is up or down — which is the architectural
+reason BrainWatch can pause to ~\$1/month: the dashboard keeps
+rendering even when the entire EKS envelope is torn down.
+
+### 4.2 Figure-to-code map
+
+Every box in `fig:arch` has a **manifest** (the Kubernetes resource
+that declares it) and a **runtime code file** (what runs inside the
+container). For first-time readers this is the bridge from "diagram
+shape" to "where do I `git grep`?":
+
+| Box in figure | Manifest | Runtime code |
+|---|---|---|
+| `bronze-streamer` (Deploy 1) | `infra/cloud/k8s-overlays/bronze-streamer.yaml` | `scripts/bronze_stream_from_s3.py` + `src/brainwatch/ingestion/bronze_writer.py` |
+| `bronze-pvc` (PVC 20 Gi) | declared in `bronze-streamer.yaml` (`gp3` SC) | filesystem-only; written by `BronzeWriter.write_eeg`, read by the loader CronJob and the kafka-producer |
+| `hdfs-bronze-loader` (CronJob `*/5 min`) | `infra/cloud/k8s-overlays/batch-on-hdfs.yaml` lines 20–104 | inline bash in `args:`; `until $HDFS -ls /` wait + `hdfs dfs -put` loop + `EXPECTED_STREAMS` post-put assertion |
+| HDFS (NN 5 Gi + DN-0/DN-1 20 Gi, RF=2) | `infra/cloud/k8s-overlays/hdfs.yaml` (ConfigMap + 2 STS + 2 Services + bootstrap Job) | image `bde2020/hadoop-{namenode,datanode}:2.0.0-hadoop3.2.1-java8`; bootstrap dir creation in the `hdfs-bootstrap-dirs` Job |
+| `spark-batch-hdfs` (CronJob `2-59/5 min`) | `infra/cloud/k8s-overlays/batch-on-hdfs.yaml` lines 106–174 | `scripts/run_batch.py` → `src/brainwatch/processing/silver_layer.py` (`_read_bronze` via Hadoop FS) + `gold_layer.py` (`build_patient_features`, `materialize_patient_enrichment`) |
+| `kafka-producer` (Deploy 1) | `infra/cloud/k8s-overlays/real-pipeline.yaml` lines 50–98 | `scripts/kafka_producer_driver.py` (`acks=all`, `linger.ms=20`, `gzip`, `retries=5`) |
+| Kafka 3.9 KRaft (STS 1, PVC 10 Gi, 4 parts) | `infra/cloud/k8s-overlays/kafka-kraft.yaml` | image `apache/kafka:3.9.0`; topics `eeg.raw` / `ehr.updates` created with `--partitions 4` by the `kafka-init` step |
+| `speed-layer` (Deploy 1, **two nested queries**) | `infra/cloud/k8s-overlays/real-pipeline.yaml` lines 100–179 | `src/brainwatch/processing/speed_layer.py::main` with `--mode=both` starts **two queries concurrently**: `build_kafka_streaming_pipeline` (lookup, `source='speed_lookup'`) + `build_kafka_join_pipeline` (Kafka stream-stream join, `source='speed_join'`); `spark.streams.awaitAnyTermination()` |
+| `checkpoints-pvc` (PVC 5 Gi) | declared in `real-pipeline.yaml` | filesystem-only; Spark writes to two subdirs (`kafka_speed_layer/` and `kafka_speed_join/`) via `.option("checkpointLocation", ...)` |
+| Cassandra 4.1 (STS 1, PVC 20 Gi, RF=1) | `infra/k8s/cassandra-statefulset.yaml` | image `cassandra:4.1`; schema applied by `src/brainwatch/serving/cassandra_sink.py::init_keyspace` (`alerts` with `source` column + `patient_state` with the 3 enrichment columns); runtime helpers `fetch_patient_enrichment` + `upsert_patient_enrichment` |
+| `cluster-state-exporter` (Deploy 1) | `infra/cloud/k8s-overlays/cluster-state-exporter.yaml` (ServiceAccount + Role + ClusterRole + RoleBinding + Deployment) | `scripts/cluster_state_to_s3.py` — subprocess `kubectl get {pods,nodes,cronjobs,jobs}`, `kubectl exec sts/hdfs-namenode -- hdfs dfsadmin -report` (parsed by `_HDFS_PATTERNS`), `kubectl exec sts/cassandra -- cqlsh -e "..."`; writes 7 flat JSON files to S3 via `boto3` |
+| `cassandra-exporter` (Deploy 1) | `infra/cloud/k8s-overlays/real-pipeline.yaml` lines 180–235 | `scripts/cassandra_to_s3_exporter.py` — `cassandra-driver` `Cluster.connect`, roll-ups via `src/brainwatch/analytics/rollups.py`, S3 upload via `boto3` |
+| Grafana 11 (Deploy 1, NodePort) | `infra/cloud/k8s-overlays/grafana.yaml` (Deployment + Service + PVC + 2 ConfigMaps) | image `grafana/grafana:11.2.0`; dashboards loaded from `infra/cloud/grafana-*.json` (cluster-status / pipeline / explorer / insights / about); Infinity datasource pulls JSON over HTTPS from the `dashboard/` S3 bucket |
+| External S3 `raw_edf/` | created in AWS console / via `deploy_cloud.sh` | written by `scripts/download_real_edf.py`; read by the bronze-streamer init container's `aws s3 cp` |
+| External S3 `dashboard/` | created by `deploy_cloud.sh` | written by both exporters; read by Grafana via Infinity datasource |
+| Kubernetes API (yellow box) | (EKS-managed, no manifest in the repo) | the API server the cluster-state-exporter probes via `kubectl get` and `kubectl exec` |
+
+**One-line summary of the convention**: every box in the figure is
+`<workload-kind> <replicas>, <CPU req → lim>, <mem req → lim>, <PVC size>`;
+solid arrows are data, dashed arrows are probes; lanes are visual
+grouping; the dashed outer rectangle is the EKS envelope.
+Manifest + code for every box lives at the two paths in the
+figure-to-code table above — that is the bridge between "draw the
+diagram on a whiteboard" and "show me the line of code that does it."
+
 ---
 
 ## 5. Repo tour
