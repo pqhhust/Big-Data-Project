@@ -208,7 +208,7 @@ stream-stream join, ≈ 60 s emission). Both score with the canonical
 |---|---|
 | Machine learning (MLlib) | `scripts/train_severity_model.py` — `LogisticRegression` over `VectorAssembler` of gold features; reports AUC on a held-out split |
 | Graph processing (GraphFrames) | **Out of scope** — the domain has no natural graph relation; relevant relations are temporal (window) and dimensional (broadcast) |
-| Statistical / time series | `speed_layer` windowed time-series agg; analytics scripts compute diurnal patterns and per-site severity time series |
+| Statistical / time series | `processing/eeg_features.py` extracts windowed band powers (delta/theta/alpha/beta/gamma) + Hjorth (activity/mobility/complexity) + line-length + spectral entropy per window via `extract_window_features(x, fs)`. `scripts/extract_eeg_features.py` runs it locally over an EDF via MNE; the gold/batch path picks the same function up via a Pandas UDF. Also: `speed_layer` windowed time-series agg, analytics scripts compute diurnal patterns and per-site severity time series. |
 
 ### Anomaly score (know by heart)
 

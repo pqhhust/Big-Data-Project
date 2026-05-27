@@ -1012,6 +1012,45 @@ alongside as the accuracy benchmark.
 
 ---
 
+**What we added next (deeper batch insights).**
+
+The bronze-streamer originally produced only summary features per
+window (chunk count, mean sampling rate, quality score). To compute
+clinically-meaningful insights on the batch side we added
+`src/brainwatch/processing/eeg_features.py` — a pure-NumPy windowed
+feature extractor that turns a `(n_channels, n_samples)` array plus
+a sampling rate into 15 float features per window:
+
+- **Band powers** (delta 0.5–4 Hz, theta 4–8, alpha 8–13, beta 13–30,
+  gamma 30–45) absolute and relative.
+- **Hjorth parameters** — activity, mobility, complexity (the
+  classical seizure/state indicators from Hjorth 1970).
+- **Line-length** — sum of |Δx|; a robust early-warning feature for
+  ictal / interictal-continuum activity.
+- **Spectral entropy** — Shannon entropy of the normalised PSD,
+  bounded by log2(n_freqs); low for pure tones, high for noise.
+
+Local-first workflow: `scripts/extract_eeg_features.py` uses MNE
+(`mne.io.read_raw_edf`) to read an EDF on the developer station,
+slides a window across each channel, runs
+`extract_window_features` per window, and emits JSONL. The same
+function is reused inside a Pandas UDF on the gold/batch path so
+the Spark CronJob recomputes the rich feature row every five
+minutes. Sixteen unit tests (`tests/test_eeg_features.py`) pin the
+math against synthetic signals: pure 10 Hz sine → alpha-band
+dominance, white noise → spectral entropy near maximum, flat
+signal → zero line-length and zero Hjorth.
+
+**Where to look in the repo (deeper-features path):**
+
+- Feature math (pure NumPy) →
+  `src/brainwatch/processing/eeg_features.py`
+- Local extractor (MNE + JSONL out) →
+  `scripts/extract_eeg_features.py`
+- 16 math tests → `tests/test_eeg_features.py`
+
+---
+
 ### Lesson 4 — Data Storage
 
 **Problem (what hurt us).**

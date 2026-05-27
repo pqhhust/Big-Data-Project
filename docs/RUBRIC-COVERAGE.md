@@ -89,7 +89,7 @@ target throughout the report is Kubernetes on managed cloud.
 |---|---|---|
 | Machine learning (MLlib) | Used | `scripts/train_severity_model.py` fits `LogisticRegression` over a `VectorAssembler` of the gold features and reports AUC on a held-out split |
 | Graph processing (GraphFrames) | Out of scope | Our domain has no natural graph relation among entities; the relevant relations are temporal (window) and dimensional (broadcast). We did not fabricate a graph to fit the category. |
-| Statistical computations / time series | Used | `speed_layer` performs windowed time-series aggregation; analytics scripts compute diurnal patterns and per-site severity time series; `spark_advanced_demo` computes per-patient histograms |
+| Statistical computations / time series | Used | `processing/eeg_features.py` extracts windowed signal-processing features per EEG window: band powers (delta/theta/alpha/beta/gamma), Hjorth parameters (activity/mobility/complexity), line-length, spectral entropy. `scripts/extract_eeg_features.py` runs it locally over an EDF via MNE; the gold/batch path picks up the same function via a Pandas UDF. 16 unit tests pin the math (`tests/test_eeg_features.py`). Plus: `speed_layer` windowed time-series aggregation; analytics scripts compute diurnal patterns and per-site severity time series; `spark_advanced_demo` computes per-patient histograms. |
 
 **Two out-of-scope sub-items**, both with a stated reason: bucketing
 (no workload benefit) and GraphFrames (no graph in the domain). The
