@@ -8,16 +8,33 @@ to swap the placeholder for `\includegraphics`.
 
 ## Quick inventory
 
-| # | Figure | Where it lives in the report | Type | Suggested tool |
+| # | Figure | Where it lives in the report | Type | Recommended approach |
 |---|---|---|---|---|
-| F1 | **Deployed system topology** | `Prototyping.tex` §Architecture overview, label `fig:arch` | Architecture diagram | **draw.io** or **Excalidraw** (export PDF) |
-| F2 | **Lambda triad** | `Background.tex` §Lambda and Kappa, end of section | Concept diagram | **TikZ** (cleanest) or **draw.io** |
-| F3 | **Real-Time Alerts dashboard** | `Background.tex` §Visualisation, end of section (left half of the side-by-side) | Screenshot | **Grafana** running locally + screenshot |
-| F4 | **Architecture Status dashboard** | `Background.tex` §Visualisation, end of section (right half of the side-by-side) | Screenshot | **Grafana** running locally + screenshot |
+| F1 | **Deployed system topology** | `Prototyping.tex` §Architecture overview, label `fig:arch` | Architecture diagram | **TikZ — paste-ready block below** (no external tool needed) |
+| F2 | **Lambda triad** | `Background.tex` §Lambda and Kappa, end of section | Concept diagram | **TikZ — paste-ready block below** |
+| F3 | **Real-Time Alerts dashboard** | `Background.tex` §Visualisation, end of section (left half of side-by-side) | Stylised mockup | **TikZ — paste-ready block below** (skip the screenshot for now) |
+| F4 | **Architecture Status dashboard** | `Background.tex` §Visualisation, end of section (right half of side-by-side) | Stylised mockup | **TikZ — paste-ready block below** |
 
-Three diagrams + two screenshots = **four `\pqhung{FIG: ...}`
-placeholders** in total (F3 and F4 share one side-by-side
-placeholder).
+All four figures ship as TikZ — no external drawing tool needed,
+no Grafana screenshot needed. Drop the four `\begin{figure}…\end{figure}`
+blocks below into the report and the figures render from the LaTeX
+source.
+
+## LaTeX preamble (one-time setup)
+
+Add these to `me310report.tex` if they are not already present (the
+amsmath / amssymb / booktabs / tabularx loads landed earlier):
+
+```latex
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, calc, shapes.geometric, backgrounds}
+\usepackage{subcaption}
+```
+
+`arrows.meta` provides `-Latex`; `positioning` provides `right=of`,
+`below=of`; `fit` lets a node wrap a group of other nodes (the EKS
+envelope); `backgrounds` lets the EKS envelope sit *behind* its
+contained nodes.
 
 ---
 
@@ -284,16 +301,116 @@ terminate at the serving layer.
    around the diagram.
 5. Save as `Figures/arch-topology.pdf` in the Overleaf project.
 
-**LaTeX swap.** In `Prototyping.tex` replace the `\pqhung{FIG: insert
-the architecture diagram above; ...}` line with:
+**LaTeX swap — paste-ready TikZ.** Replace the entire
+`\begin{figure}[t]...\end{figure}` block in `Prototyping.tex`
+(currently wrapping the `\pqhung{FIG: insert the architecture diagram
+above; ...}` placeholder) with:
 
 ```latex
-\includegraphics[width=\linewidth]{Figures/arch-topology.pdf}
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  pod/.style={draw, rounded corners, fill=blue!8,
+              minimum width=2.2cm, minimum height=0.9cm, align=center},
+  cron/.style={draw, rounded corners, fill=orange!10,
+               minimum width=2.2cm, minimum height=0.9cm, align=center},
+  pvc/.style={draw, rounded corners=2pt, fill=green!10,
+              minimum width=1.6cm, minimum height=0.6cm, align=center,
+              font=\scriptsize},
+  ext/.style={draw, rounded corners, fill=gray!10,
+              minimum width=2.0cm, minimum height=0.9cm, align=center},
+  arr/.style={-Latex, thick},
+  ctrl/.style={-Latex, thick, dashed, gray},
+  envelope/.style={draw, dashed, rounded corners, inner sep=8pt,
+                   label={[anchor=north west,
+                           font=\scriptsize\bfseries,
+                           xshift=4pt, yshift=-2pt]north west:EKS 1.30
+                           cluster --- 2$\times$t3.xlarge (8\,vCPU,
+                           32\,GiB), namespace \texttt{brainwatch}}},
+  every node/.style={inner sep=3pt},
+]
+% ----- external (outside EKS) -----
+\node[ext] (bdsp)   at (0, 6.5) {BDSP S3\\\scriptsize(credentialed)};
+\node[ext, right=0.6cm of bdsp] (bucket)
+                                 {\texttt{raw\_edf/}\\\scriptsize 17\,GiB \(\cdot\) 1{,}571 EDFs};
+\node[ext, right=4.0cm of bucket] (dashbucket)
+                                 {\texttt{dashboard/}\\\scriptsize S3 static site};
+% ----- ingestion lane -----
+\node[pod] (streamer) at (0, 4.5) {bronze-streamer\\\scriptsize Deploy 1, 500m$\to$1, 1$\to$2\,Gi};
+\node[pvc, below=0.3cm of streamer]
+                       (bronzepvc) {bronze-pvc 20\,Gi};
+\node[pod, right=0.4cm of streamer]
+                       (kafkaprod) {kafka-producer\\\scriptsize Deploy 1, 250m$\to$1};
+% ----- storage + bus -----
+\node[pod, right=0.5cm of kafkaprod]
+                       (kafka)     {Kafka 3.9 KRaft\\\scriptsize STS 1, PVC 10\,Gi, 4 parts};
+\node[cron, right=0.6cm of kafka]
+                       (loader)    {hdfs-bronze-loader\\\scriptsize CronJob */5 min};
+\node[pod, right=0.6cm of loader, minimum height=2.3cm,
+        align=center, label={[font=\scriptsize\bfseries]above:HDFS RF=2}]
+                       (hdfsbox)
+   {NameNode 5\,Gi\\[-1pt]\hrulefill\\[-1pt]DN-0 20\,Gi\\[-1pt]DN-1 20\,Gi};
+% ----- compute lane -----
+\node[cron, below=0.5cm of loader]
+                       (sparkbatch){spark-batch-hdfs\\\scriptsize CronJob 2-59/5 min, local[4]};
+\node[pod, below=0.5cm of kafka, minimum width=2.5cm, minimum height=1.4cm,
+        align=center,
+        label={[font=\scriptsize\bfseries]above:speed-layer (Deploy 1)}]
+                       (speed)     {lookup query\\\textit{source}=speed\_lookup\\[-1pt]\hrulefill\\[-1pt]join query\\\textit{source}=speed\_join};
+\node[pvc, below=0.3cm of speed]
+                       (chkpt)     {checkpoints-pvc 5\,Gi};
+% ----- serving lane -----
+\node[pod, below=0.6cm of hdfsbox]
+                       (cassandra) {Cassandra 4.1\\\scriptsize STS 1, PVC 20\,Gi, RF=1};
+\node[pod, below=0.5cm of cassandra]
+                       (cassexp)   {cassandra-exporter\\\scriptsize Deploy 1};
+\node[pod, below=0.5cm of speed]
+                       (clusexp)   {cluster-state-exporter\\\scriptsize Deploy 1};
+\node[pod, below=0.5cm of clusexp]
+                       (grafana)   {Grafana 11\\\scriptsize Deploy 1, NodePort};
+% ----- arrows -----
+\draw[arr] (bdsp) -- (bucket);
+\draw[arr] (bucket) -- (streamer);
+\draw[arr] (streamer) -- (bronzepvc);
+\draw[arr] (bronzepvc.east) -- ++(0.3,0) |- (loader.west);
+\draw[arr] (loader) -- (hdfsbox);
+\draw[arr] (hdfsbox.south) |- (sparkbatch.east);
+\draw[arr] (sparkbatch) -- (loader);                 % batch reads from HDFS via loader path
+\draw[arr] (kafkaprod) -- (kafka);
+\draw[arr] (kafka)     -- (speed);
+\draw[arr] (speed)     -- (cassandra);
+\draw[arr] (cassandra) -- (cassexp);
+\draw[arr] (cassexp.east) to[bend right=20]
+                          (dashbucket.south west);
+\draw[ctrl] (clusexp) -- (cassandra);                % read-only probes
+\draw[ctrl] (clusexp.east) -- ++(0.3,0) |- (hdfsbox.south west);
+\draw[arr]  (clusexp.east) to[bend right=8] (dashbucket);
+\draw[arr]  (dashbucket) -- (grafana);
+% ----- EKS envelope -----
+\begin{scope}[on background layer]
+  \node[envelope, fit=(streamer)(bronzepvc)(kafkaprod)(kafka)(loader)
+                       (hdfsbox)(sparkbatch)(speed)(chkpt)
+                       (cassandra)(cassexp)(clusexp)(grafana)] {};
+\end{scope}
+\end{tikzpicture}%
+}
+\caption{Deployed topology of BrainWatch on Amazon EKS. The hybrid
+storage layer uses HDFS for the compute-side lake and Amazon S3 for
+the raw archive and the dashboard serving layer. Solid arrows carry
+data; dashed arrows are read-only probes from the cluster-state
+exporter.}
+\label{fig:arch}
+\end{figure}
 ```
 
-The surrounding `\begin{figure}[t]\centering ... \caption{...}
-\label{fig:arch}\end{figure}` block already exists — just swap the
-placeholder line for the `\includegraphics` line.
+The `\resizebox{\linewidth}{!}{ ... }` wrapper makes the diagram
+auto-fit page width; remove it if the figure already fits, or replace
+with `[scale=0.85]` on the `\begin{tikzpicture}` for fine control.
+Every numeric annotation (`RF=2`, `5\,Gi`, `4 parts`, etc.) comes
+straight from the manifests in `infra/cloud/k8s-overlays/` — the
+inventory table in the next section is the source of truth.
 
 ---
 
@@ -519,6 +636,75 @@ count.
 
 **Save as.** `Figures/dash-architecture-status.png` in the Overleaf
 project.
+
+## Paste-ready TikZ for F3 + F4 (skip the screenshots)
+
+If you'd rather ship the figures without bringing up Grafana, the
+following TikZ block produces a stylised side-by-side mockup of both
+dashboards. Drop it in `Background.tex` in place of the
+`\pqhung{FIG: Two Grafana dashboard screenshots side by side ...}`
+block:
+
+```latex
+\begin{figure}[ht]
+\centering
+\begin{subfigure}{0.49\linewidth}
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  panel/.style={draw, rounded corners, minimum width=3.4cm,
+                minimum height=1.1cm, align=center, fill=blue!4},
+  hdr/.style={draw, rounded corners, fill=blue!20, minimum width=7.0cm,
+              minimum height=0.6cm, align=center, font=\bfseries\small},
+  tag/.style={font=\bfseries},
+]
+\node[hdr] (title) at (0, 0) {Real-Time Alerts};
+\node[panel, below=0.25cm of title, xshift=-1.9cm] (sev)
+    {\tag{Severity stat}\\critical 5 \(\cdot\) warning 12\\advisory 38 \(\cdot\) normal 145};
+\node[panel, right=0.2cm of sev] (rate)
+    {\tag{Alert rate / site}\\\textit{time series}\\last 30 min};
+\node[panel, below=0.25cm of sev, minimum width=7.0cm,
+      minimum height=1.4cm] (table)
+    {\tag{Recent alerts table}\\P003 \(\cdot\) 12:04 \(\cdot\) critical\\P017 \(\cdot\) 12:03 \(\cdot\) warning\\P021 \(\cdot\) 12:02 \(\cdot\) advisory \(\cdot\) \dots};
+\node[panel, below=0.25cm of table, minimum width=7.0cm] (bar)
+    {\tag{Alert-by-severity bar chart}};
+\end{tikzpicture}
+\caption{Clinician-facing surface, refreshed every 30\,s from S3.}
+\end{subfigure}\hfill
+\begin{subfigure}{0.49\linewidth}
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  panel/.style={draw, rounded corners, minimum width=3.4cm,
+                minimum height=1.1cm, align=center, fill=orange!6},
+  hdr/.style={draw, rounded corners, fill=orange!25, minimum width=7.0cm,
+              minimum height=0.6cm, align=center, font=\bfseries\small},
+  tag/.style={font=\bfseries},
+]
+\node[hdr] (title) at (0, 0) {Architecture Status};
+\node[panel, below=0.25cm of title, xshift=-1.9cm] (pods)
+    {\tag{Pods by app}\\bronze-streamer: 1\\speed-layer: 1 \(\cdot\) Cassandra: 1};
+\node[panel, right=0.2cm of pods] (nodes)
+    {\tag{EKS nodes}\\2 \(\times\) t3.xlarge\\both Ready};
+\node[panel, below=0.25cm of pods, minimum width=7.0cm] (crons)
+    {\tag{CronJobs}\\hdfs-bronze-loader \(\cdot\) spark-batch-hdfs\\last fire \(\sim\) 30\,s ago};
+\node[panel, below=0.25cm of crons] (hdfs)
+    {\tag{HDFS capacity}\\used \(\sim\)9.4\,GiB / 40\,GiB \(\cdot\) RF=2\\under-rep blocks: 0};
+\node[panel, right=0.2cm of hdfs] (cass)
+    {\tag{Cassandra}\\alerts: 100\,K+\\(speed\_lookup + speed\_join)};
+\end{tikzpicture}
+\caption{Platform-engineer surface, same S3-backed refresh.}
+\end{subfigure}
+\caption{The two BrainWatch Grafana dashboards. Both read static JSON
+from Amazon S3, so they keep rendering when the EKS cluster is torn
+down. Mockup-style rendering --- panel labels show what each tile
+contains; substitute real screenshots later if desired.}
+\label{fig:dashboards}
+\end{figure}
+```
+
+Required preamble: `tikz`, `\usetikzlibrary{positioning}`,
+`subcaption` (already named in the one-time setup at the top).
 
 ---
 
