@@ -1,1 +1,1 @@
-"""Ingestion utilities."""
+"""BrainWatch ingestion layer — producers, writers, and DLQ."""

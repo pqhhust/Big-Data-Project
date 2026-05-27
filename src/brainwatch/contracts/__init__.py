@@ -1,1 +1,1 @@
-"""Event contracts."""
+"""BrainWatch event contracts, schemas, and validators."""

@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: brainwatch-ingress
+  namespace: brainwatch
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: brainwatch.local
+      http:
+        paths:
+          - path: /spark
+            pathType: Prefix
+            backend:
+              service:
+                name: spark-streaming
+                port:
+                  number: 4040

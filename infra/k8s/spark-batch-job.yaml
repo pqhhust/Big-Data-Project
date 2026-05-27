@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spark-batch
+  namespace: brainwatch
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: spark-batch
+              image: bitnami/spark:3.5
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  echo "Running BrainWatch batch pipeline..."
+                  spark-submit \
+                    --master local[*] \
+                    --name brainwatch-batch \
+                    --conf spark.sql.shuffle.partitions=8 \
+                    /app/scripts/run_batch.py \
+                      --bronze /data/lake/bronze \
+                      --silver /data/lake/silver \
+                      --gold /data/lake/gold
+              env:
+                - name: BRONZE_PREFIX
+                  valueFrom:
+                    configMapKeyRef:
+                      name: brainwatch-config
+                      key: BRONZE_PREFIX
+                - name: SILVER_PREFIX
+                  valueFrom:
+                    configMapKeyRef:
+                      name: brainwatch-config
+                      key: SILVER_PREFIX
+                - name: GOLD_PREFIX
+                  valueFrom:
+                    configMapKeyRef:
+                      name: brainwatch-config
+                      key: GOLD_PREFIX
+              resources:
+                requests:
+                  memory: "1Gi"
+                  cpu: "500m"
+                limits:
+                  memory: "2Gi"
+                  cpu: "1"

@@ -1,5 +1,6 @@
 project_name: brainwatch
 architecture: lambda
+version: "1.0.0"
 
 data_sources:
   eeg:
@@ -13,28 +14,112 @@ data_sources:
     local_manifest_path: artifacts/generated/eeg_subset_manifest.json
     target_subset_hours: 8
     target_subset_sessions: 12
+    chunk_duration_seconds: 1
+    min_duration_seconds: 300
+    max_duration_seconds: 5400
   ehr:
     local_raw_root: data/raw/ehr
     bronze_root: data/bronze/ehr
     timezone: UTC
+    icd10_source: data/raw/ehr/heedb_icd10.csv
+    synthetic_events_per_patient: 5
 
 kafka:
-  bootstrap_servers: kafka:9092
+  bootstrap_servers: localhost:9094
   topics:
     eeg_raw: eeg.raw
     ehr_updates: ehr.updates
     realtime_features: features.realtime
     anomaly_alerts: alerts.anomaly
+    dlq: brainwatch.dlq
+  producer:
+    acks: all
+    retries: 3
+    max_in_flight: 1
+    request_timeout_ms: 30000
+    linger_ms: 10
+    batch_size: 16384
+  consumer:
+    group_id: brainwatch-consumer
+    auto_offset_reset: earliest
+    enable_auto_commit: false
+
+spark:
+  app_name: BrainWatch
+  master: "local[*]"
+  driver_memory: 2g
+  executor_memory: 2g
+  shuffle_partitions: 8
+  checkpoint_dir: data/checkpoints
+  warehouse_dir: data/spark-warehouse
+  log_level: WARN
 
 lakehouse:
   bronze_prefix: data/lake/bronze
   silver_prefix: data/lake/silver
   gold_prefix: data/lake/gold
+  format: parquet
+  partition_columns:
+    bronze: ["site_id", "date"]
+    silver: ["site_id", "date"]
+    gold: ["date"]
+
+hdfs:
+  namenode_url: hdfs://namenode:9000
+  replication_factor: 2
+  bronze_path: /data/lake/bronze
+  silver_path: /data/lake/silver
+  gold_path: /data/lake/gold
+  checkpoint_path: /data/checkpoints
+
+s3:
+  raw_edf_bucket: brainwatch-raw-edf
+  raw_edf_prefix: raw_edf/
+  dashboard_bucket: brainwatch-static
+  region: us-east-1
+
+cassandra:
+  contact_points:
+    - localhost
+  port: 9042
+  keyspace: brainwatch
+  replication_strategy: SimpleStrategy
+  replication_factor: 1
+  tables:
+    alerts: patient_alerts
+    features: patient_features
+    state: patient_state
 
 serving:
   nosql_backend: cassandra
   keyspace: brainwatch
+  alert_dedup_window_seconds: 300
+  severity_escalation_threshold: 3
+
+anomaly:
+  thresholds:
+    critical_score: 0.85
+    warning_score: 0.60
+    signal_quality_min: 0.30
+    flatline_max_std: 0.001
+    electrode_disconnect_threshold: 0.05
+    seizure_spike_multiplier: 3.0
+  rules:
+    - classify_anomaly
+    - detect_flatline
+    - detect_electrode_disconnect
+    - detect_seizure_pattern
+
+dlq:
+  enabled: true
+  max_retries: 3
+  output_path: data/dlq
+  topic: brainwatch.dlq
 
 monitoring:
   metrics_namespace: brainwatch
   checkpoint_prefix: data/checkpoints
+  watermarks:
+    eeg_minutes: 10
+    ehr_minutes: 30
+  batch_trigger_interval: "5 minutes"

@@ -4,22 +4,58 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brainwatch-big-data"
-version = "0.1.0"
-description = "Week-1 scaffold for a Lambda-style EEG and EHR big data project."
+version = "1.0.0"
+description = "Lambda-architecture big data system for near-real-time EEG anomaly detection with EHR context enrichment."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+authors = [
+    { name = "Quang-Hung", email = "hung@brainwatch.dev" },
+    { name = "Kim-Hung" },
+    { name = "Kim-Quan" },
+    { name = "Dat" },
+    { name = "Trang" },
+]
+keywords = ["eeg", "ehr", "big-data", "lambda-architecture", "spark", "kafka", "streaming"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
 dependencies = [
-  "boto3>=1.34",
-  "PyYAML>=6.0",
+    "boto3>=1.34",
+    "PyYAML>=6.0",
+    "numpy>=1.26",
+    "pandas>=2.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0",
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "pytest-mock>=3.12",
 ]
 spark = [
-  "pyspark>=3.5,<4.0",
+    "pyspark>=3.5,<4.0",
 ]
+kafka = [
+    "kafka-python>=2.0",
+]
+cassandra = [
+    "cassandra-driver>=3.29",
+]
+mne = [
+    "mne>=1.6",
+]
+all = [
+    "brainwatch-big-data[dev,spark,kafka,cassandra,mne]",
+]
+
+[project.scripts]
+brainwatch-profile = "brainwatch.ingestion.eeg_inventory:main"
+brainwatch-manifest = "brainwatch.ingestion.subset_manifest:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/brainwatch"]
@@ -27,3 +63,12 @@ packages = ["src/brainwatch"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "spark: tests requiring PySpark (deselect with '-m not spark')",
+    "kafka: tests requiring Kafka connectivity",
+    "slow: slow-running integration tests",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
