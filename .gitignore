@@ -17,6 +17,11 @@ dashboard/.vite/
 .env
 data/
 tmp/
+dashboard/public/eeg_signals/
+artifacts/demo/alerts_real.jsonl
+artifacts/eks/logs/
 artifacts/generated/
+artifacts/models/
 artifacts/week2/kafka_fallback.jsonl
+docs/
 CLAUDE.md

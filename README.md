@@ -1,181 +1,224 @@
-# BrainWatch — Big Data Platform for Real-Time EEG Monitoring
+# BrainWatch
 
-> Lambda-architecture big data system for near-real-time EEG anomaly detection with EHR context enrichment.
+BrainWatch is a Lambda-architecture data platform for hospital-scale EEG
+monitoring. It ingests real EDF recordings and EHR-like clinical events,
+maintains a bronze/silver/gold lake on HDFS, scores near-real-time anomalies
+with Spark Structured Streaming, stores alerts in Cassandra, and serves
+operational dashboards through Grafana.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Spark 3.5](https://img.shields.io/badge/spark-3.5-orange)](https://spark.apache.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## Overview
+## What It Runs
 
-BrainWatch implements a full Lambda-architecture pipeline for hospital-scale EEG monitoring. The system ingests multi-site clinical EEG recordings alongside asynchronous EHR updates, performs both batch and streaming analytics via Apache Spark, and generates near-real-time anomaly alerts through a rule-based serving layer.
+The deployed system is designed around two paths over the same clinical data:
 
-**Data context.** Source metadata is derived from the BDSP clinical EEG corpus. The implementation operates on a locally staged subset enabling reproducible development without cloud dependencies.
+```text
+BDSP EDF archive + HEEDB clinical metadata
+    -> bronze JSONL
+    -> HDFS lake
+    -> Spark batch silver/gold tables
+    -> patient features and dashboard samples
 
-## Quick Start
+bronze EEG/EHR events
+    -> Kafka topics
+    -> Spark Structured Streaming
+    -> Cassandra alerts
+    -> S3 rollup JSON
+    -> Grafana dashboards
+
+raw EDF in HDFS
+    -> WebHDFS EEG signal exporter
+    -> compact waveform JSON in S3
+    -> Grafana EEG Signal Viewer
+```
+
+Core runtime components:
+
+| Layer | Technology | Role |
+|---|---|---|
+| Ingestion | Python, MNE, Kafka producers | EDF parsing, EHR event generation, replay into Kafka |
+| Message bus | Kafka 3.9 KRaft | Replayable event log for EEG and EHR streams |
+| Batch processing | Spark 3.5 | Bronze to silver/gold lake transforms |
+| Stream processing | Spark Structured Streaming | Windowed anomaly scoring and Cassandra writes |
+| Distributed storage | HDFS, RF=2 | Bronze, silver, gold, raw EDF copy, Spark checkpoints |
+| Object storage | S3 | Raw archive, dashboard JSON, code bundle for pods |
+| Serving store | Cassandra 4.1 | Alert and patient enrichment tables |
+| Dashboards | Grafana 11, Infinity datasource, React/Vite | Live operational views and EEG waveform viewer |
+| Orchestration | Kubernetes on AWS EKS | Stateful and stateless workloads |
+
+## Repository Layout
+
+```text
+configs/                     Runtime configuration templates
+dashboard/                   React dashboard frontend
+infra/
+  docker/                    Local Kafka/Spark compose stack
+  k8s/                       Base Kubernetes manifests
+  cloud/                     EKS manifests, Grafana dashboards, resume scripts
+scripts/                     CLI entry points and cluster jobs
+src/brainwatch/              Core Python package
+  contracts/                 Event dataclasses
+  ingestion/                 Bronze writer, Kafka helpers, dead-letter handling
+  processing/                Spark silver/gold/speed-layer logic
+  analytics/                 Rollups, ICD/HEEDB helpers
+  serving/                   Cassandra sink and anomaly rules
+tests/                       Pytest suite
+```
+
+`docs/` is intentionally local-only and ignored by Git. The committed
+technical entry point is this README.
+
+## Local Setup
 
 ```bash
-# Setup
+cd /mnt/disk1/aiotlab/pqhung/courseworks/Big-Data-Project
 source /mnt/disk1/aiotlab/envs/uffm/bin/activate
 pip install -e ".[dev,spark,kafka]"
 ```
 
-### 1. Generate EEG manifest
-
-```bash
-python scripts/download_eeg_ehr.py \
-  --csv-dir ../STELAR-private/pretrain/reve/metadata \
-  --output artifacts/week2/download_manifest.json \
-  --target-hours 50
-```
-
-### 2. Replay events
-
-```bash
-# With Kafka (Docker):
-python scripts/replay_to_kafka.py \
-  --manifest artifacts/week2/download_manifest.json \
-  --bootstrap-servers localhost:9094
-
-# File fallback:
-python scripts/replay_to_kafka.py \
-  --manifest artifacts/week2/download_manifest.json \
-  --fallback
-```
-
-### 3. Start local stack
+Optional local services:
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml up -d
-# Kafka UI: http://localhost:8890
-# Spark UI: http://localhost:8891
 ```
 
-### 4. Run tests
+Frontend:
 
 ```bash
-pytest -v   # 131 tests passing
+cd dashboard
+npm install
+npm run dev
 ```
 
-### 5. Deploy to Kubernetes
+## Real Data Pipeline
+
+The BDSP root key is expected outside the repository:
 
 ```bash
-bash infra/k8s/deploy.sh
-# View status: kubectl get all -n brainwatch
+export BDSP_CREDENTIALS=/mnt/disk1/aiotlab/pqhung/courseworks/credentials/rootkey.csv
 ```
 
-## Repository Structure
-
-```
-Big-Data-Project/
-├── configs/              # Configuration templates
-├── docs/                 # Architecture, setup, technology docs
-│   └── TECHNOLOGY.md     # Comprehensive architecture documentation
-├── infra/
-│   ├── docker/           # Docker Compose (Kafka KRaft + Spark)
-│   └── k8s/              # Kubernetes manifests
-├── scripts/              # CLI tools
-│   ├── download_eeg_ehr.py    # EEG download + EHR generation
-│   └── replay_to_kafka.py     # Event replay simulator
-├── src/brainwatch/       # Core package
-│   ├── contracts/        # Event schemas
-│   ├── ingestion/        # Producers, writers, DLQ
-│   ├── processing/       # Spark pipelines
-│   └── serving/          # Anomaly rules, alert publisher
-├── tests/                # 131 unit tests
-└── dashboard/            # React frontend (WIP)
-```
-
-## Technology Stack
-
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| Message Bus | Apache Kafka 3.9 (KRaft) | No ZooKeeper |
-| Stream Processing | Apache Spark 3.5 | Batch + Structured Streaming + MLlib |
-| **Distributed Storage** | **HDFS 3.2 (1 NN + 2 DN, RF=2)** | Bronze/silver/gold lake + Spark checkpoints |
-| **Raw archive** | **S3 `raw_edf/` (17 GiB / 1,571 EDFs)** | Source of truth the bronze-streamer reads from |
-| **Object Storage** | **S3 static-website bucket** | Dashboard rollups, survives cluster teardown |
-| **Bronze production** | `bronze-streamer` Deployment | S3 EDF → mne parse → JSONL → HDFS, continuous |
-| **Batch trigger** | K8s CronJobs (every 5 min) | `hdfs-bronze-loader` + `spark-batch-hdfs` |
-| **Architecture visibility** | `cluster-state-exporter` + Grafana dashboard #6 | live kubectl + HDFS + Cassandra → S3 |
-| Serving Store | Cassandra 4.1 | Alert persistence (PK `patient_id`) |
-| Orchestration | Kubernetes 1.30 (AWS EKS) | Deployment |
-
-> **Hybrid storage:** HDFS is the *compute-side* distributed filesystem
-> (literal "HDFS" for the rubric); S3 is the *serving-side* object store so
-> the dashboard keeps working even when the cluster is torn down for
-> $1/month. See [`docs/QA-BANK.md` §17](docs/QA-BANK.md) for the full Q&A.
-
-## Architecture
-
-```
-EEG Source → Kafka (eeg.raw) → Spark Streaming → Bronze Parquet → Speed Layer → Alerts → Cassandra
-EHR Source → Kafka (ehr.updates) → Spark Streaming → Bronze Parquet ──────────┘
-```
-
-**Key features:**
-- Watermarks: 10 min (EEG), 30 min (EHR)
-- Deduplication via SHA256 fingerprint
-- Dead-letter queue for failed validations
-- Dual-sink alerts (Cassandra + Kafka)
-
-## Team & Roles
-
-| Member | Role |
-|--------|------|
-| Quang-Hung | Lead / Architect |
-| Kim-Hung | Engineer (Kafka, Cassandra, Bronze) |
-| Kim-Quan | Engineer (EHR, Anomaly Rules) |
-| Dat | Engineer (DLQ, K8s) |
-| Trang | Engineer (Tests, CLI) |
-
-## Documentation
-
-| Doc | When to open it |
-|---|---|
-| [docs/STUDY-GUIDE.md](docs/STUDY-GUIDE.md) | Read first — prereq materials + code walk + deploy + Q&A |
-| [docs/CHEATSHEET.md](docs/CHEATSHEET.md) | One-page printable for the defense |
-| [docs/QA-BANK.md](docs/QA-BANK.md) | Every question consolidated — 17 sections incl. hybrid HDFS+S3 |
-| [docs/PYSPARK-STREAMING-QA.md](docs/PYSPARK-STREAMING-QA.md) | 80 streaming-engine Q&As |
-| [docs/AUTO-TRIGGER-MECHANISMS.md](docs/AUTO-TRIGGER-MECHANISMS.md) | CronJob vs streaming vs event-driven |
-| [docs/REAL-VS-DEMO.md](docs/REAL-VS-DEMO.md) | What a real hospital deployment adds |
-| [docs/TECHNOLOGY.md](docs/TECHNOLOGY.md) | Full architecture documentation |
-| [docs/PRESENTATION-GUIDE.md](docs/PRESENTATION-GUIDE.md) | Defense pitch + "if they ask" boxes |
-| [docs/final-report.md](docs/final-report.md) | The formal write-up |
-| [docs/setup-guide.md](docs/setup-guide.md) | Environment setup instructions |
-
-## Status — final
-
-- **Architecture + ingestion + batch + speed + serving**: complete
-- **Real data**: 17 GiB of real BDSP/Harvard EDF (1,571 recordings across 4 sites — 1,097 unique
-  patients, 4 sites) parsed with `mne` into measured bronze events; real
-  HEEDB ICD-10 neurology diagnoses joined for 640 patients
-- **Tests**: 131 passing (`pytest -q`), local-first
-- **Cloud**: deployed end-to-end on AWS EKS — Kafka (KRaft) → Spark Structured
-  Streaming → Cassandra → S3 → Grafana (4 dashboards)
-- **Docs**: `docs/PRESENTATION-GUIDE.md` (defense prep), `docs/final-report.md`
-  (11-lesson rubric), `CONTRIBUTORS.md` (role attribution)
-
-### Real-data pipeline (local)
+Download a bounded real EDF subset, convert it to bronze, build real EHR
+events, then materialize silver/gold:
 
 ```bash
-# 1. Download real EDF from BDSP (needs the rootkey)
-export BDSP_CREDENTIALS=../credentials/rootkey.csv
-python scripts/download_real_edf.py --target-gb 17 --min-duration 600 --max-duration 3000
+python scripts/download_real_edf.py \
+  --target-gb 1 \
+  --sites I0002 I0003 S0001 S0002 \
+  --min-duration 120 \
+  --max-duration 1800
 
-# 2. Parse real signal → measured bronze events
 python scripts/edf_to_bronze.py --bronze data/lake/bronze_real
-
-# 3. Real EHR with HEEDB ICD-10
 python scripts/build_real_ehr.py --bronze data/lake/bronze_real
 
-# 4. Batch bronze → silver → gold
-python scripts/run_batch.py --bronze data/lake/bronze_real --silver data/lake/silver_real --gold data/lake/gold_real
-
-# 5. Clinical insights (real ICD-10) + alerts
-python scripts/extract_clinical_insights.py --silver data/lake/silver_real --gold data/lake/gold_real --alerts artifacts/demo/alerts_real.jsonl
+python scripts/run_batch.py \
+  --bronze data/lake/bronze_real \
+  --silver data/lake/silver_real \
+  --gold data/lake/gold_real \
+  --alerts-export artifacts/demo/alerts_real.jsonl
 ```
+
+## EEG Signal Viewer
+
+Grafana cannot render EDF files directly. BrainWatch keeps the EDF binaries in
+HDFS and exports a compact, bounded JSON slice for visualization:
+
+```bash
+python scripts/export_eeg_signal_viewer.py \
+  --source hdfs \
+  --hdfs-root /lake/bronze/edf \
+  --webhdfs-url http://hdfs-namenode-0.hdfs-namenode.brainwatch.svc.cluster.local:9870 \
+  --output-dir dashboard/public/eeg_signals \
+  --seconds 30 \
+  --max-samples 1200 \
+  --channels 19 \
+  --prefer-subject I0002150000051
+```
+
+On EKS this is automated by
+`infra/cloud/k8s-overlays/eeg-signal-exporter.yaml`. The exporter reads EDF
+through WebHDFS, writes `index.json` and per-record waveform JSON, and uploads
+the result to the dashboard S3 bucket under `eeg_signals/`.
+
+## Cloud Deployment
+
+Prerequisites: `aws`, `eksctl`, `kubectl`, AWS credentials for the project
+account, and the snapshot inventory under `artifacts/eks/snapshots/`.
+
+```bash
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_DEFAULT_REGION=us-east-1
+
+bash infra/cloud/resume_from_snapshots.sh
+kubectl -n brainwatch get pods
+```
+
+The resume script recreates the EKS cluster, restores EBS volumes from
+snapshots, reapplies HDFS/Kafka/Cassandra/Grafana/Spark workloads, and
+provisions the Grafana dashboards ConfigMap.
+
+Current dashboard entry points for the running cluster:
+
+```text
+Grafana:              http://3.237.253.77:30300
+Architecture Status: http://3.237.253.77:30300/d/brainwatch-arch/brainwatch-c2b7-architecture-status
+EEG Signal Viewer:   http://3.237.253.77:30300/d/brainwatch-eeg-signal-viewer/brainwatch-c2b7-eeg-signal-viewer
+```
+
+The worker public IP can change after a cluster rebuild. Use
+`kubectl -n brainwatch get svc grafana` and the worker node address if the URLs
+stop resolving.
+
+## Verification
+
+Python and Spark-facing checks:
+
+```bash
+pytest -q
+python -m py_compile scripts/export_eeg_signal_viewer.py
+python -m json.tool infra/cloud/grafana-cluster-status-dashboard.json >/dev/null
+python -m json.tool infra/cloud/grafana-eeg-signal-dashboard.json >/dev/null
+bash -n infra/cloud/resume_from_snapshots.sh
+```
+
+Frontend build:
+
+```bash
+cd dashboard
+npm run build
+```
+
+Cluster checks:
+
+```bash
+kubectl -n brainwatch get pods
+kubectl -n brainwatch get cronjob
+kubectl -n brainwatch exec sts/hdfs-namenode -- hdfs dfs -ls /lake/bronze/edf
+kubectl -n brainwatch exec sts/cassandra -- cqlsh -e \
+  "SELECT COUNT(*) FROM brainwatch.alerts;"
+```
+
+Dashboard JSON checks:
+
+```bash
+curl -s http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/cluster_summary.json | jq
+curl -s http://brainwatch-dashboard-923884399064.s3-website-us-east-1.amazonaws.com/eeg_signals/index.json | jq
+```
+
+## Operational Notes
+
+- HDFS is the compute-side filesystem for lake data and checkpoints.
+- S3 is the serving-side store for Grafana JSON and survives EKS teardown.
+- Cassandra alert writes are keyed by patient and alert time, so replayed
+  micro-batches upsert the same logical alert row.
+- The cloud deployment avoids custom image builds by copying scripts and wheels
+  from S3 into init containers.
+- Generated data, dashboard exports, credentials, and all local documentation
+  are ignored by Git.
 
 ## License
 
-MIT License - see LICENSE file
+MIT License. See [LICENSE](LICENSE).
